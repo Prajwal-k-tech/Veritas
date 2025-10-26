@@ -14,7 +14,6 @@ pub mod voting { //smart contract name
     //Create a new poll with auto-incrementing ID
     pub fn initialize_poll(
         ctx: Context<InitializePoll>,
-        start_time: u64,
         end_time: u64,
         name: String,
         description: String,
@@ -25,8 +24,8 @@ pub mod voting { //smart contract name
         
         require!(candidates.len() <= 10, ErrorCode::TooManyCandidates); //max of 10 candidates
         require!(candidates.len() > 0, ErrorCode::NoCandidates); //make sure more than 1 duh 
-        require!(start_time as i64 >= current_time, ErrorCode::InvalidStartTime); //start time must be now or future
-        require!(end_time > start_time, ErrorCode::InvalidTimeRange); //make sure the time range is valid 
+        // Poll starts NOW (blockchain time), end time must be in future
+        require!(end_time as i64 > current_time, ErrorCode::InvalidTimeRange);
 
         let poll = &mut ctx.accounts.poll_account; //the poll being created
         let counter = &mut ctx.accounts.counter; //counter has its own account 
@@ -35,13 +34,12 @@ pub mod voting { //smart contract name
         poll.admin = ctx.accounts.admin.key();
         poll.poll_name = name.clone();
         poll.poll_description = description.clone();
-        poll.poll_voting_start = start_time;
+        poll.poll_voting_start = current_time as u64; //start immediately (blockchain time ) 
         poll.poll_voting_end = end_time;
         poll.candidates = candidates.clone();
         poll.tallier_pubkey = tallier_pubkey;
 
-        // Increment counter for next poll
-        counter.next_poll_id += 1;
+        counter.next_poll_id += 1; //counter incremented for next poll 
 
         emit!(PollCreatedEvent {
             poll_id: poll.poll_id,
@@ -49,7 +47,7 @@ pub mod voting { //smart contract name
             name,
             description,
             candidates,
-            start_time,
+            start_time: poll.poll_voting_start,
             end_time,
         }); //log event
 

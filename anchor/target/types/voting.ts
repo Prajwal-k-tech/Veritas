@@ -139,10 +139,6 @@ export type Voting = {
       ],
       "args": [
         {
-          "name": "startTime",
-          "type": "u64"
-        },
-        {
           "name": "endTime",
           "type": "u64"
         },

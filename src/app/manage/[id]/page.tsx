@@ -20,7 +20,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
   const router = useRouter()
   const { publicKey } = useWallet()
   
-  const { usePoll, registerVoter } = useVotingProgram()
+  const { usePoll, registerVoter, program, publishResults } = useVotingProgram()
   const { data: poll, isLoading: pollLoading } = usePoll(pollId)
   
   const [csvFile, setCsvFile] = useState<File | null>(null)
@@ -220,9 +220,23 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
     reader.onload = (event) => {
       try {
         const text = event.target?.result as string
-        const keyArray = JSON.parse(text)
-        if (Array.isArray(keyArray) && keyArray.length === 32) {
-          setEncryptionKey(new Uint8Array(keyArray))
+        const keyData = JSON.parse(text)
+        
+        // Handle both formats: direct array or object with secretKey
+        let secretKey: number[]
+        if (Array.isArray(keyData)) {
+          // Direct 32-byte array (legacy format)
+          secretKey = keyData
+        } else if (keyData.secretKey && Array.isArray(keyData.secretKey)) {
+          // Object with secretKey property (current format)
+          secretKey = keyData.secretKey
+        } else {
+          setTallyError('Invalid encryption key format. Expected {secretKey: [...]} or [...].')
+          return
+        }
+        
+        if (secretKey.length === 32) {
+          setEncryptionKey(new Uint8Array(secretKey))
           setTallyError('')
         } else {
           setTallyError('Invalid encryption key format. Expected 32-byte array.')
@@ -242,7 +256,6 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
     setTallyResults(null)
 
     try {
-      const { program, publishResults } = useVotingProgram()
       if (!program) {
         throw new Error('Program not initialized')
       }
@@ -250,46 +263,118 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
       const connection = program.provider.connection
 
       // Fetch all VoteAccount PDAs for this poll (ANONYMOUS - no voter identity!)
+      // Encode poll_id as u64 (little-endian) for memcmp filter - browser-compatible
+      const pollIdBuffer = Buffer.alloc(8)
+      const view = new DataView(pollIdBuffer.buffer, pollIdBuffer.byteOffset, pollIdBuffer.byteLength)
+      view.setBigUint64(0, BigInt(pollId), true) // true = little-endian
+      const pollIdBase58 = require('bs58').encode(pollIdBuffer)
+
+      // VoteAccount discriminator: sha256("account:VoteAccount")[0:8]
+      const discriminator = Buffer.from('cbee9a6ac8830029', 'hex')
+      const discriminatorBase58 = require('bs58').encode(discriminator)
+
+      // Filter by BOTH discriminator (to get only VoteAccount) AND poll_id
       const accounts = await connection.getProgramAccounts(program.programId, {
         filters: [
           {
             memcmp: {
-              offset: 8, // After discriminator
-              bytes: pollId.toString(),
+              offset: 0, // discriminator at offset 0
+              bytes: discriminatorBase58,
+            },
+          },
+          {
+            memcmp: {
+              offset: 8, // poll_id at offset 8 for VoteAccount
+              bytes: pollIdBase58,
             },
           },
         ],
       })
+
+      console.log('=== TALLYING DEBUG ===')
+      console.log('Poll ID:', pollId)
+      console.log('Discriminator (hex):', discriminator.toString('hex'))
+      console.log('Discriminator (base58):', discriminatorBase58)
+      console.log('PollId buffer (hex):', pollIdBuffer.toString('hex'))
+      console.log('PollId (base58):', pollIdBase58)
+      console.log('Found VoteAccount instances:', accounts.length)
+      
+      // Log each account in EXTREME detail
+      accounts.forEach((acc, idx) => {
+        console.log(`\n--- Account ${idx} ---`)
+        console.log('Pubkey:', acc.pubkey.toBase58())
+        console.log('Owner:', acc.account.owner.toBase58())
+        console.log('Data length:', acc.account.data.length)
+        console.log('First 8 bytes (discriminator, hex):', acc.account.data.slice(0, 8).toString('hex'))
+        console.log('Bytes 8-16 (poll_id, hex):', acc.account.data.slice(8, 16).toString('hex'))
+        console.log('Full first 50 bytes (hex):', acc.account.data.slice(0, 50).toString('hex'))
+      })
+      console.log('\n======================')
 
       const voteCounts: Record<string, number> = {}
       poll.candidates.forEach((candidate: string) => {
         voteCounts[candidate] = 0
       })
 
+      console.log('=== DECRYPTION SETUP ===')
+      console.log('Admin secret key length:', encryptionKey.length)
+      console.log('Poll tallier pubkey:', poll.tallierPubkey)
+      console.log('Candidates to match:', poll.candidates)
+      console.log('========================')
+
       // Decrypt each vote - Admin CANNOT determine which voter cast which vote!
       for (const account of accounts) {
         try {
-          const voteData = program.coder.accounts.decode('VoteAccount', account.account.data)
-          if (!voteData.encryptedVote) continue
-
-          const encryptedVote = Buffer.from(voteData.encryptedVote)
+          // MANUAL DECODE: Bypass Anchor's decoder to avoid IDL caching issues
+          // VoteAccount layout: discriminator(8) + poll_id(8) + vec_len(4) + encrypted_vote + nullifier(32)
+          const data = account.account.data
           
-          // Format: ephemeralPublicKey (32) + nonce (24) + encrypted message
+          // Skip discriminator (0-7) and poll_id (8-15)
+          const vecLenOffset = 16
+          const vecLen = data.readUInt32LE(vecLenOffset)
+          
+          console.log('Manual decode - Vec length:', vecLen)
+          
+          if (vecLen === 0 || vecLen > 200) {
+            console.warn('Invalid encrypted vote length:', vecLen)
+            continue
+          }
+          
+          // Extract encrypted vote bytes
+          const encryptedVoteStart = vecLenOffset + 4
+          const encryptedVote = data.slice(encryptedVoteStart, encryptedVoteStart + vecLen)
+          
+          console.log('Decrypting vote, encrypted length:', encryptedVote.length)
+          
+          // Format: ephemeralPublicKey (32) + nonce (24) + ciphertext
           const ephemeralPublicKey = encryptedVote.slice(0, 32)
           const nonce = encryptedVote.slice(32, 56)
           const ciphertext = encryptedVote.slice(56)
 
-          const sharedSecret = nacl.box.before(ephemeralPublicKey, encryptionKey)
-          const decrypted = nacl.box.open.after(ciphertext, nonce, sharedSecret)
+          console.log('Ephemeral pubkey length:', ephemeralPublicKey.length)
+          console.log('Nonce length:', nonce.length)
+          console.log('Ciphertext length:', ciphertext.length)
+
+          // Decrypt using nacl.box.open (direct method)
+          // nacl.box.open(ciphertext, nonce, theirPublicKey, mySecretKey)
+          const decrypted = nacl.box.open(ciphertext, nonce, ephemeralPublicKey, encryptionKey)
 
           if (decrypted) {
             const candidateName = new TextDecoder().decode(decrypted)
+            console.log('✅ Decrypted candidate:', candidateName)
             if (voteCounts[candidateName] !== undefined) {
               voteCounts[candidateName]++
+              console.log('✅ Vote counted for:', candidateName)
+            } else {
+              console.warn('❌ Unknown candidate:', candidateName, 'Expected one of:', Object.keys(voteCounts))
             }
+          } else {
+            console.error('❌ Failed to decrypt - incorrect key or corrupted data')
+            console.log('Debug - First 10 bytes of ciphertext:', ciphertext.slice(0, 10))
+            console.log('Debug - Admin secret key (first 10):', encryptionKey.slice(0, 10))
           }
         } catch (err) {
-          console.warn('Failed to decrypt a vote:', err)
+          console.error('Failed to decrypt a vote:', err)
         }
       }
 

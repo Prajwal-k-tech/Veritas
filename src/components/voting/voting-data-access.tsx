@@ -59,40 +59,10 @@ export function useVotingProgram() {
     mutationFn: async () => {
       if (!program || !wallet.publicKey) throw new Error('Wallet not connected')
       
-      const tx = await program.methods
-        .initializeCounter()
-        .accounts({
-          admin: wallet.publicKey,
-        })
-        .rpc()
-      
-      return tx
-    },
-  })
-
-  // Initialize poll mutation
-  const initializePoll = useMutation({
-    mutationFn: async (params: {
-      startTime: BN
-      endTime: BN
-      name: string
-      description: string
-      candidates: string[]
-      tallierPubkey: number[]
-    }) => {
-      if (!program || !wallet.publicKey) throw new Error('Wallet not connected')
-      
       const counterPDA = getCounterPDA()
       
       const tx = await program.methods
-        .initializePoll(
-          params.startTime,
-          params.endTime,
-          params.name,
-          params.description,
-          params.candidates,
-          params.tallierPubkey
-        )
+        .initializeCounter()
         .accounts({
           admin: wallet.publicKey,
           counter: counterPDA,
@@ -103,12 +73,64 @@ export function useVotingProgram() {
     },
   })
 
+  // Initialize poll mutation
+  const initializePoll = useMutation({
+    mutationFn: async (params: {
+      endTime: BN
+      name: string
+      description: string
+      candidates: string[]
+      tallierPubkey: number[]
+    }) => {
+      if (!program || !wallet.publicKey) throw new Error('Wallet not connected')
+      
+      const counterPDA = getCounterPDA()
+      
+      // Fetch the current counter to get the next poll ID
+      let pollId: number
+      try {
+        const counterAccount: any = await (program.account as any).globalPollCounter.fetch(counterPDA)
+        // CRITICAL: Convert BN to number (nextPollId is a BN object from Anchor)
+        pollId = counterAccount.nextPollId.toNumber()
+      } catch (e) {
+        // Counter doesn't exist - this is the first poll, so pollId = 1
+        console.log('Counter not found, assuming first poll (ID = 1)')
+        pollId = 1
+      }
+      
+      // Derive the poll account PDA
+      const [pollPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from('poll'), new BN(pollId).toArrayLike(Buffer, 'le', 8)],
+        program.programId
+      )
+      
+      const tx = await program.methods
+        .initializePoll(
+          params.endTime,
+          params.name,
+          params.description,
+          params.candidates,
+          params.tallierPubkey
+        )
+        .accounts({
+          admin: wallet.publicKey,
+          counter: counterPDA,
+          pollAccount: pollPDA,
+        })
+        .rpc()
+      
+      // Return both transaction signature and poll ID
+      return { txSig: tx, pollId }
+    },
+  })
+
   // Register voter mutation
   const registerVoter = useMutation({
     mutationFn: async (params: { pollId: number; voter: PublicKey }) => {
       if (!program || !wallet.publicKey) throw new Error('Wallet not connected')
       
       const pollPDA = getPollPDA(params.pollId)
+      const voterRegistryPDA = getVoterRegistryPDA(params.pollId, params.voter)
       
       const tx = await program.methods
         .registerVoter(new BN(params.pollId))
@@ -116,6 +138,7 @@ export function useVotingProgram() {
           pollAccount: pollPDA,
           admin: wallet.publicKey,
           voter: params.voter,
+          voterRegistry: voterRegistryPDA,
         })
         .rpc()
       
@@ -168,12 +191,14 @@ export function useVotingProgram() {
       if (!program || !wallet.publicKey) throw new Error('Wallet not connected')
       
       const pollPDA = getPollPDA(params.pollId)
+      const resultsPDA = getResultsPDA(params.pollId)
       
       const tx = await program.methods
         .publishResults(new BN(params.pollId), params.results)
         .accounts({
           publisher: wallet.publicKey,
           pollAccount: pollPDA,
+          resultsAccount: resultsPDA,
         })
         .rpc()
       

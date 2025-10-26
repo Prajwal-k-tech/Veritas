@@ -24,15 +24,21 @@ export default function CreatePollPage() {
   const [description, setDescription] = useState('')
   const [candidates, setCandidates] = useState(['', ''])
   
-  // Default end time to 1 day from now in IST
+  // Default end time to 1 day from now IN LOCAL TIME
+  // CRITICAL: datetime-local input expects local time format WITHOUT timezone conversion
   const getDefaultEndTime = () => {
-    const now = new Date()
-    // Convert to IST (UTC +5:30)
-    const istOffset = 5.5 * 60 * 60 * 1000
-    const istDate = new Date(now.getTime() + istOffset)
-    istDate.setDate(istDate.getDate() + 1) // 1 day from now
-    istDate.setSeconds(0, 0)
-    return istDate.toISOString().slice(0, 16)
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1) // 1 day from now
+    tomorrow.setSeconds(0, 0)
+    
+    // Format as YYYY-MM-DDTHH:mm using LOCAL time (not UTC!)
+    const year = tomorrow.getFullYear()
+    const month = String(tomorrow.getMonth() + 1).padStart(2, '0')
+    const day = String(tomorrow.getDate()).padStart(2, '0')
+    const hours = String(tomorrow.getHours()).padStart(2, '0')
+    const minutes = String(tomorrow.getMinutes()).padStart(2, '0')
+    
+    return `${year}-${month}-${day}T${hours}:${minutes}`
   }
   
   const [endTime, setEndTime] = useState(getDefaultEndTime())
@@ -88,8 +94,11 @@ export default function CreatePollPage() {
     setError('')
 
     try {
-      // Validate inputs
-      const filledCandidates = candidates.filter(c => c.trim())
+      // Validate inputs - filter empty and TRIM whitespace
+      const filledCandidates = candidates
+        .filter(c => c.trim())
+        .map(c => c.trim())
+      
       if (filledCandidates.length < 2) {
         throw new Error('Need at least 2 candidates')
       }
@@ -97,24 +106,32 @@ export default function CreatePollPage() {
         throw new Error('Maximum 10 candidates allowed')
       }
 
-      // Start time is NOW (when poll is created)
-      const start = Math.floor(Date.now() / 1000)
+      // End time from user input (datetime-local)
+      // Start time is automatically set to NOW by the smart contract
       const end = new Date(endTime).getTime() / 1000
+      const now = Math.floor(Date.now() / 1000)
 
-      if (end <= start) {
-        throw new Error('End time must be after current time')
+      if (end <= now) {
+        throw new Error('End time must be in the future')
       }
 
       // Try to initialize counter first (might fail if already initialized)
       try {
-        await initializeCounter.mutateAsync()
-      } catch (e) {
-        console.log('Counter already initialized (this is ok)')
+        const txSig = await initializeCounter.mutateAsync()
+        // Wait for confirmation
+        await connection.confirmTransaction(txSig, 'confirmed')
+        console.log('Counter initialized successfully')
+      } catch (e: any) {
+        // Counter might already exist, which is fine
+        if (e.message?.includes('already in use')) {
+          console.log('Counter already initialized (this is ok)')
+        } else {
+          console.log('Counter initialization error (might be ok):', e.message)
+        }
       }
 
-      // Create poll
-      const txSig = await initializePoll.mutateAsync({
-        startTime: new BN(start),
+      // Create poll (start time is automatically set to NOW by blockchain)
+      const result = await initializePoll.mutateAsync({
         endTime: new BN(end),
         name: pollName,
         description: description,
@@ -122,25 +139,11 @@ export default function CreatePollPage() {
         tallierPubkey: Array.from(encryptionKeypair.publicKey),
       })
 
-      // CRITICAL: Wait for transaction confirmation before reading counter
-      await connection.confirmTransaction(txSig, 'confirmed')
+      // CRITICAL: Wait for transaction confirmation
+      await connection.confirmTransaction(result.txSig, 'confirmed')
 
-      // Poll ID: fetch the counter and derive the created poll id
-      try {
-        if (program) {
-          const counterPDA = getCounterPDA()
-          const counterAcct: any = await (program.account as any).globalPollCounter.fetch(counterPDA)
-          // counter.next_poll_id was incremented after creation, so the created poll id is previous value
-          const createdId = Number(counterAcct.nextPollId) - 1
-          setCreatedPollId(createdId > 0 ? createdId : 1)
-        } else {
-          // fallback
-          setCreatedPollId(1)
-        }
-      } catch (e) {
-        console.error('Failed to read counter after create:', e)
-        setCreatedPollId(1)
-      }
+      // Use the poll ID returned from the mutation
+      setCreatedPollId(result.pollId)
 
     } catch (err: any) {
       console.error('Error creating poll:', err)
