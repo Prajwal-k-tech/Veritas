@@ -6,30 +6,10 @@
 
 ---
 
-## 🚀 Quick Start Commands
 
-### Pre-Demo Setup (5 minutes before)
 
-```bash
-# Terminal 1: Start local Solana validator
-cd "/home/prajwal-k/VS Code/Solana"
-solana-test-validator
 
-# Terminal 2: Deploy program (if needed)
-cd "/home/prajwal-k/VS Code/Solana/VotingDapp/anchor"
-anchor build && anchor deploy
-
-# Terminal 3: Start frontend
-cd "/home/prajwal-k/VS Code/Solana/VotingDapp"
-npm run dev
-```
-
-Open browser: **http://localhost:3000**  
-Wallet: **2WPCGJ2KyELh9nRvF4WSsoeYFjJwFJn7Ade1sCdkvuh3**
-
----
-
-## 🎬 Demo Script (10 Minutes)
+##  Demo Script (10 Minutes)
 
 ### **Step 1: Introduction (1 minute)**
 
@@ -69,7 +49,7 @@ Wallet: **2WPCGJ2KyELh9nRvF4WSsoeYFjJwFJn7Ade1sCdkvuh3**
 1. Go to "Manage Poll"
 2. Paste your wallet address in "Register Single Voter"
 3. Click "Register"
-4. ✅ See success message
+4. See success message
 
 **What to Explain:**
 > "In production, you'd upload a CSV of thousands of voter addresses. The smart contract creates a VoterRegistry account linked to each voter's identity - this prevents double voting."
@@ -83,7 +63,7 @@ Wallet: **2WPCGJ2KyELh9nRvF4WSsoeYFjJwFJn7Ade1sCdkvuh3**
 2. Select candidate (e.g., "Solana")
 3. Click "Submit Encrypted Vote"
 4. Approve transaction
-5. ✅ See success screen
+5.  See success screen
 
 **What to Explain:**
 > "Here's the magic - when I vote, TWO accounts are created:
@@ -139,7 +119,7 @@ Vote Transaction (Atomic):
 2. Scroll to "Tally & Publish Results"
 3. Upload encryption key file
 4. Click "Tally & Publish Results"
-5. ✅ See decrypted results: "Solana: 1 vote (100%)"
+5.  See decrypted results: "Solana: 1 vote (100%)"
 
 **What to Explain:**
 > "Now I decrypt and tally. The smart contract fetches ALL VoteAccount instances for this poll using `getProgramAccounts()` with filters. I decrypt each vote locally using my private key, count them, then publish final results to the blockchain."
@@ -165,7 +145,7 @@ for (const account of accounts) {
 
 ---
 
-## 🔑 Key Technical Highlights
+##  Key Technical Highlights
 
 ### Why Solana?
 - **Fast:** 400ms block time = instant voting confirmation
@@ -187,7 +167,7 @@ for (const account of accounts) {
 
 ---
 
-## 🎯 Handling Judge Questions
+##  Handling Judge Questions
 
 **Q: How do you prevent the admin from correlating votes?**
 > A: The admin would need to monitor blockchain transactions in real-time and correlate the timing of VoterRegistry and VoteAccount creation in the same transaction. If the admin waits until after voting ends to tally, passive correlation is impossible. For maximum privacy, we could add random delays or use mixnets.
@@ -206,7 +186,7 @@ for (const account of accounts) {
 
 ---
 
-## 🚨 Common Demo Issues
+## Common Demo Issues
 
 ### Validator Not Running
 ```bash
@@ -239,7 +219,7 @@ npm install && npm run dev
 
 ---
 
-## 📊 Demo Success Checklist
+## Demo Success Checklist
 
 - [ ] Validator running (Terminal 1)
 - [ ] Program deployed (check Program ID)
@@ -254,7 +234,7 @@ npm install && npm run dev
 
 ---
 
-## 🎓 Backup Demo (If Live Demo Fails)
+##  Backup Demo (If Live Demo Fails)
 
 Have screenshots/video of:
 1. Poll creation with encryption key generation
@@ -271,7 +251,7 @@ Have screenshots/video of:
 
 ---
 
-## 🏆 Closing Statement
+## Closing Statement
 
 > "Veritas proves that blockchain voting can be both PRIVATE and TRANSPARENT. We achieved anonymity through cryptographic architecture rather than complex zero-knowledge proofs, making the system auditable and trustworthy. With Solana's speed and efficiency, this could scale to national elections. Thank you!"
 
@@ -282,7 +262,7 @@ Have screenshots/video of:
 
 ---
 
-## 📝 Post-Demo Tasks
+##  Post-Demo Tasks
 
 - [ ] Upload code to GitHub
 - [ ] Deploy to Devnet/Mainnet (optional)
@@ -290,4 +270,4 @@ Have screenshots/video of:
 - [ ] Update README with screenshots
 - [ ] Prepare technical Q&A document
 
-**Good luck! 🚀**
+**Good luck! **
