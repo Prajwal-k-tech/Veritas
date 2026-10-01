@@ -1,5 +1,7 @@
 # 📜 Smart Contract Deep Dive - Veritas Voting System
 
+> **Archive notice (2026-10-02):** This hackathon-era guide contains inaccurate claims about anonymity, receipt-freeness, and tally integrity. It is retained as historical material only and does not describe the current implementation or its security properties. Use the repository README and the in-app Protocol Notes for the source-matched behavior and limitations.
+
 **File:** `anchor/programs/voting/src/lib.rs`  
 **Lines:** 395  
 **Language:** Rust (Anchor Framework 0.31.1)  

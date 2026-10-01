@@ -23,7 +23,10 @@ export default function Home() {
         <div className="text-center space-y-2">
           <h1 className="text-4xl font-bold tracking-tight">Veritas</h1>
           <p className="text-muted-foreground">
-            Secure, encrypted, on-chain voting powered by Solana
+            A Solana voting prototype with client-encrypted ballots and public poll activity
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Prototype only: transactions can link voter addresses to ballot accounts, and published tallies are not verified against ballots.
           </p>
         </div>
 
@@ -76,13 +79,13 @@ export default function Home() {
           </Card>
         </div>
 
-        {/* Audit Log Card */}
+        {/* Protocol Notes Card */}
         <div className="max-w-md mx-auto mt-6">
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
-              <CardTitle>Audit Log</CardTitle>
+              <CardTitle>Protocol Notes</CardTitle>
               <CardDescription>
-                View all blockchain events and verify poll integrity
+                Read what the current program records and what its privacy and tally limits are
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -91,7 +94,7 @@ export default function Home() {
                 variant="outline"
                 className="w-full"
               >
-                View Audit Log
+                View Protocol Notes
               </Button>
             </CardContent>
           </Card>
@@ -102,19 +105,19 @@ export default function Home() {
           <div className="text-center space-y-2">
             <h3 className="font-semibold">Encrypted Votes</h3>
             <p className="text-sm text-muted-foreground">
-              Votes encrypted with TweetNaCl before submission
+              Ballot contents are encrypted before submission; transaction metadata remains public
             </p>
           </div>
           <div className="text-center space-y-2">
             <h3 className="font-semibold">On-Chain Storage</h3>
             <p className="text-sm text-muted-foreground">
-              All data stored permanently on Solana blockchain
+              Polls, encrypted ballot data, events, and submitted results are written to Solana
             </p>
           </div>
           <div className="text-center space-y-2">
-            <h3 className="font-semibold">Audit Trail</h3>
+            <h3 className="font-semibold">Public Events</h3>
             <p className="text-sm text-muted-foreground">
-              Complete timeline of all voting events
+              Program events expose poll, voter-registration, vote-cast, and result-publication activity
             </p>
           </div>
         </div>

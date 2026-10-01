@@ -47,13 +47,13 @@ Open [http://localhost:3000](http://localhost:3000) and connect a wallet configu
 - TweetNaCl.js for client-side ballot encryption
 - Tailwind CSS and shadcn/ui components
 
-See [`HACKATHON_DEMO_GUIDE.md`](https://github.com/Prajwal-k-tech/Veritas/blob/main/HACKATHON_DEMO_GUIDE.md) and [`SMART_CONTRACT_GUIDE.md`](https://github.com/Prajwal-k-tech/Veritas/blob/main/SMART_CONTRACT_GUIDE.md). Project-authored security claims should not be treated as independent audits.
+The repository retains two hackathon-era guides as historical artifacts. Their privacy and security claims are superseded by this README and the protocol notes in the app; neither guide describes verified security properties.
 
 ## Privacy and security limits
 
 - The public chain exposes voter registration and voting activity, including voter identity and vote timestamp in an event.
 - Separate accounts and random nullifiers do not prevent timing or transaction correlation.
-- The administrator can decrypt ballots and is trusted to protect the private key and report results honestly.
+- The poll's tally private key can decrypt ballot contents, but key possession is not enforced on-chain. Any signer may submit a result after voting ends.
 - The program does not verify that published counts match encrypted ballots or that result names match poll candidates.
 - Publishing results is permissionless after the poll ends. The account can be created only once, so there is no on-chain correction flow for a fabricated first tally.
 - No independent security review or production readiness evidence is documented.

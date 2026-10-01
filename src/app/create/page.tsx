@@ -174,7 +174,7 @@ export default function CreatePollPage() {
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-lg">
           <CardHeader>
-            <CardTitle>✅ Poll Created!</CardTitle>
+            <CardTitle>Poll Created</CardTitle>
             <CardDescription>Your voting poll is now live on Solana</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -311,7 +311,7 @@ export default function CreatePollPage() {
               <div className="space-y-2">
                 <Alert>
                   <AlertDescription>
-                    ✅ Encryption key generated! Download it after creating the poll.
+                    Encryption key generated. Download it after creating the poll.
                   </AlertDescription>
                 </Alert>
                 <div className="bg-muted p-3 rounded text-xs font-mono break-all">

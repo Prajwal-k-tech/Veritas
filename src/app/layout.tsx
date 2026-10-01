@@ -6,13 +6,13 @@ import React from 'react'
 
 export const metadata: Metadata = {
   title: 'Veritas',
-  description: 'Secure blockchain voting on Solana - Transparent. Encrypted. Verifiable.',
+  description: 'A Solana voting prototype with client-encrypted ballots and public transaction metadata. It does not provide voter anonymity or verify tallies.',
 }
 
 const links: { label: string; path: string }[] = [
   { label: 'Home', path: '/' },
   { label: 'Create Poll', path: '/create' },
-  { label: 'Audit Log', path: '/audit' },
+  { label: 'Protocol Notes', path: '/audit' },
 ]
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

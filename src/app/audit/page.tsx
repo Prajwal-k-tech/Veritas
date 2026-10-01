@@ -15,9 +15,9 @@ export default function AuditLogPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Blockchain Audit Trail</CardTitle>
+            <CardTitle>Protocol Notes and Limits</CardTitle>
             <CardDescription>
-              Understanding how Veritas records voting events on the Solana blockchain
+              A source-based guide to the current program. This is not a live event viewer or an independent tally verifier.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -28,8 +28,7 @@ export default function AuditLogPage() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <p>
-              Every action in Veritas is recorded as an immutable event on the Solana blockchain. 
-              These events provide a transparent, tamper-proof audit trail that anyone can verify.
+              The program emits public events for poll creation, voter registration, ballot casting, and result publication. These records help inspect transactions, but they do not prove that a submitted tally matches the encrypted ballots or provide voter anonymity.
             </p>
             <p>
               The smart contract emits four types of events using Anchor's <code className="bg-muted px-1 py-0.5 rounded">emit!</code> macro:
@@ -50,22 +49,15 @@ export default function AuditLogPage() {
                 <pre>{`#[event]
 pub struct PollCreatedEvent {
     pub poll_id: u64,
-    pub poll_name: String,
     pub admin: Pubkey,
+    pub name: String,
+    pub description: String,
     pub candidates: Vec<String>,
-    pub voting_start: i64,
-    pub voting_end: i64,
+    pub start_time: u64,
+    pub end_time: u64,
 }
 
-// Emitted in initialize_poll instruction:
-emit!(PollCreatedEvent {
-    poll_id: counter.next_poll_id,
-    poll_name: poll_name.clone(),
-    admin: admin.key(),
-    candidates: candidates.clone(),
-    voting_start,
-    voting_end,
-});`}</pre>
+// The program emits the poll's public metadata.`}</pre>
               </div>
             </div>
 
@@ -91,31 +83,30 @@ emit!(VoterRegisteredEvent {
             {/* VoteCastEvent */}
             <div className="space-y-3">
               <h3 className="font-semibold text-base">3. VoteCastEvent</h3>
-              <p className="text-sm text-muted-foreground">Emitted when an encrypted vote is submitted.</p>
+              <p className="text-sm text-muted-foreground">Emitted when a ballot transaction is submitted; the event exposes the voter address and timestamp.</p>
               <div className="bg-muted p-4 rounded-lg text-xs font-mono overflow-x-auto">
                 <pre>{`#[event]
 pub struct VoteCastEvent {
     pub poll_id: u64,
     pub voter: Pubkey,
+    pub timestamp: i64,
 }
 
-// Emitted in vote instruction:
-emit!(VoteCastEvent {
-    poll_id,
-    voter: voter_account.key(),
-});`}</pre>
+// The voter address and timestamp are public event fields.
+// The transaction also includes the VoteAccount PDA.`}</pre>
               </div>
             </div>
 
             {/* ResultsPublishedEvent */}
             <div className="space-y-3">
               <h3 className="font-semibold text-base">4. ResultsPublishedEvent</h3>
-              <p className="text-sm text-muted-foreground">Emitted when final tallied results are published.</p>
+              <p className="text-sm text-muted-foreground">Emitted when a result record is submitted.</p>
               <div className="bg-muted p-4 rounded-lg text-xs font-mono overflow-x-auto">
                 <pre>{`#[event]
 pub struct ResultsPublishedEvent {
     pub poll_id: u64,
     pub results: Vec<CandidateResult>,
+    pub total_votes: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -124,11 +115,8 @@ pub struct CandidateResult {
     pub vote_count: u64,
 }
 
-// Emitted in publish_results instruction:
-emit!(ResultsPublishedEvent {
-    poll_id,
-    results: results.clone(),
-});`}</pre>
+// Submitted result data is recorded; the program does not
+// compare these counts with encrypted ballots.`}</pre>
               </div>
             </div>
           </CardContent>
@@ -136,110 +124,12 @@ emit!(ResultsPublishedEvent {
 
         <Card>
           <CardHeader>
-            <CardTitle>How to View Events Using Solscan</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            <p>
-              You can view all events from real transactions using Solscan, Solana's blockchain explorer.
-            </p>
-            <div className="space-y-3">
-              <div>
-                <h4 className="font-semibold mb-2">Step 1: Get a Transaction Signature</h4>
-                <p className="text-muted-foreground">
-                  When you perform any action (create poll, register voter, cast vote), the app shows a transaction signature.
-                  Copy this signature.
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-semibold mb-2">Step 2: Open Solscan</h4>
-                <p className="text-muted-foreground">
-                  Go to{' '}
-                  <a
-                    href="https://solscan.io"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary underline"
-                  >
-                    solscan.io
-                  </a>{' '}
-                  and switch to your cluster (localhost, devnet, or mainnet).
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-semibold mb-2">Step 3: Search Transaction</h4>
-                <p className="text-muted-foreground">
-                  Paste the transaction signature into the search bar and press Enter.
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-semibold mb-2">Step 4: View Event Logs</h4>
-                <p className="text-muted-foreground">
-                  Scroll down to the "Program Instruction Logs" section. Look for lines starting with{' '}
-                  <code className="bg-muted px-1 py-0.5 rounded">Program data:</code>. These contain the base64-encoded event data.
-                </p>
-              </div>
-
-              <div>
-                <h4 className="font-semibold mb-2">Step 5: Decode Events</h4>
-                <p className="text-muted-foreground">
-                  Event data is encoded using Borsh serialization. You can decode it using the Anchor IDL or 
-                  the{' '}
-                  <code className="bg-muted px-1 py-0.5 rounded">@coral-xyz/anchor</code>{' '}
-                  library in JavaScript/TypeScript.
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Programmatic Event Parsing</CardTitle>
+            <CardTitle>Event inspection</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              To programmatically fetch and parse events, you can use the Solana RPC:
+              This page documents event fields from the program source. The app does not implement a live event viewer or event decoder. The repository is configured for localnet, so local transactions are not available in public explorers such as Solscan.
             </p>
-            <div className="bg-muted p-4 rounded-lg text-xs font-mono overflow-x-auto">
-              <pre>{`import { Connection, PublicKey } from '@solana/web3.js';
-import { AnchorProvider, Program } from '@coral-xyz/anchor';
-
-const PROGRAM_ID = new PublicKey('H2S4xQeQgwSSZ1nyRjqP6KmSL4gLqcFSYuo69XNqHcy7');
-
-async function fetchPollEvents(pollId: number) {
-  const connection = new Connection('http://localhost:8899');
-  
-  // Get all transactions for the program
-  const signatures = await connection.getSignaturesForAddress(PROGRAM_ID, { 
-    limit: 1000 
-  });
-  
-  // Fetch transaction details
-  const transactions = await connection.getParsedTransactions(
-    signatures.map(s => s.signature)
-  );
-  
-  // Parse logs to extract events
-  const events = [];
-  for (const tx of transactions) {
-    if (!tx?.meta?.logMessages) continue;
-    
-    for (const log of tx.meta.logMessages) {
-      if (log.includes('Program data:')) {
-        // Extract and decode base64 event data
-        const eventData = log.split('Program data: ')[1];
-        // Decode using Anchor's event parser
-        // events.push(decoded event);
-      }
-    }
-  }
-  
-  return events.filter(e => e.pollId === pollId);
-}`}</pre>
-            </div>
           </CardContent>
         </Card>
 
@@ -249,42 +139,43 @@ async function fetchPollEvents(pollId: number) {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <div>
-              <h4 className="font-semibold mb-2">How Veritas Ensures Vote Privacy</h4>
+              <h4 className="font-semibold mb-2">Ballot encryption and public metadata</h4>
               <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                <li>Votes are encrypted using TweetNaCl (Curve25519-XSalsa20-Poly1305)</li>
-                <li>Vote storage uses anonymous PDAs with random nullifiers (no voter identity)</li>
-                <li>Only the poll admin has the decryption key (required for tallying)</li>
-                <li>Other voters and public observers cannot see individual vote choices</li>
+                <li>The frontend encrypts the selected candidate with TweetNaCl before submitting ballot bytes.</li>
+                <li>The vote transaction publicly includes the voter signer and the VoteAccount PDA; a random nullifier does not hide that transaction relationship.</li>
+                <li>The program emits the voter address and timestamp for each vote.</li>
+                <li>Ballot contents can be decrypted by whoever holds the poll's tally private key. The on-chain program does not enforce who holds or uses it.</li>
+                <li>This prototype does not provide voter anonymity or an independently audited privacy guarantee.</li>
               </ul>
             </div>
 
             <div>
               <h4 className="font-semibold mb-2">Trust Model</h4>
               <p className="text-muted-foreground mb-2">
-                Veritas operates on a <strong>trusted admin model</strong>, similar to traditional student elections:
+                The app's tally interface expects a private key and calculates counts off-chain. The program's result instruction is permissionless after voting ends:
               </p>
               <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                <li><strong>What admins CAN do:</strong> Decrypt votes after voting ends to tally results</li>
-                <li><strong>What admins CANNOT do:</strong> Modify submitted votes or change results after publication</li>
-                <li><strong>Theoretical vulnerability:</strong> Admin could correlate votes if actively monitoring blockchain during voting (requires malicious intent)</li>
-                <li><strong>Real-world comparison:</strong> Similar to traditional elections where officials can observe voters entering polling booths</li>
+                <li>Any signer may call <code>publish_results</code> after the poll ends; the instruction checks the result-array length but does not verify candidate names or counts against ballots.</li>
+                <li>The results PDA is initialized once. A fabricated first submission can occupy it and prevent a later replacement through this program.</li>
+                <li>The creator's tally key can decrypt ballots; published counts still depend on a caller's submitted values.</li>
+                <li>Do not use this prototype for real elections or sensitive votes.</li>
               </ul>
             </div>
 
             <div>
-              <h4 className="font-semibold mb-2">What Blockchain Guarantees</h4>
+              <h4 className="font-semibold mb-2">What the on-chain record shows</h4>
               <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                <li><strong>Immutability:</strong> Once cast, votes cannot be altered or deleted</li>
-                <li><strong>Public Verification:</strong> Anyone can verify the final tally matches on-chain data</li>
-                <li><strong>Transparent Logic:</strong> Smart contract code is open-source and auditable</li>
-                <li><strong>Tamper-Proof Storage:</strong> Cryptographically impossible to modify results after publication</li>
+                <li>Solana transactions and program events expose poll actions and public account addresses.</li>
+                <li>The program stores encrypted ballot bytes and a submitted result record.</li>
+                <li>Public source code can be inspected; this project has no independent security audit.</li>
+                <li>On-chain storage does not prove ballot secrecy, voter anonymity, or tally correctness.</li>
               </ul>
             </div>
 
             <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 p-4 rounded-lg">
               <h4 className="font-semibold mb-2">Future Enhancements</h4>
               <p className="text-muted-foreground">
-                Advanced cryptographic techniques could eliminate trust assumptions entirely:
+                These are possible future research directions, not properties of the current prototype:
               </p>
               <ul className="list-disc list-inside space-y-1 text-muted-foreground mt-2">
                 <li><strong>Zero-Knowledge Proofs (ZK-SNARKs):</strong> Prove eligibility without revealing identity</li>
@@ -293,7 +184,7 @@ async function fetchPollEvents(pollId: number) {
                 <li><strong>Multi-Party Computation:</strong> Distributed tallying across multiple parties</li>
               </ul>
               <p className="text-muted-foreground mt-2">
-                These would enable <strong>trustless</strong> voting where no single party can correlate voters to votes.
+                Each would require a separate design, implementation, and security review before making stronger privacy or verification claims.
               </p>
             </div>
           </CardContent>
@@ -301,21 +192,17 @@ async function fetchPollEvents(pollId: number) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Why This Matters for Veritas</CardTitle>
+            <CardTitle>What this prototype demonstrates</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p>
-              <strong>Transparency:</strong> Anyone can verify that votes were cast, results were 
-              tallied correctly, and no unauthorized modifications occurred.
+              <strong>Public records:</strong> Poll actions and submitted result data can be inspected on Solana. Inspection does not establish that a result matches the encrypted ballots.
             </p>
             <p>
-              <strong>Auditability:</strong> Every action is timestamped and linked to a wallet address, 
-              creating an immutable chain of custody.
+              <strong>Evaluation opportunity:</strong> This implementation makes a useful study of the gap between encrypted ballot storage and end-to-end verifiable voting.
             </p>
             <p>
-              <strong>Trust Minimization:</strong> While Veritas currently trusts the poll admin to 
-              tally results honestly, the blockchain ensures no one can tamper with submitted votes 
-              or change results after publication.
+              <strong>Current limit:</strong> Public metadata can link voting activity to wallet addresses, and the program accepts an unverified first result submission after the poll ends.
             </p>
           </CardContent>
         </Card>
@@ -329,15 +216,7 @@ async function fetchPollEvents(pollId: number) {
               H2S4xQeQgwSSZ1nyRjqP6KmSL4gLqcFSYuo69XNqHcy7
             </div>
             <p className="text-sm text-muted-foreground mt-2">
-              View all program transactions on{' '}
-              <a
-                href="https://solscan.io/account/H2S4xQeQgwSSZ1nyRjqP6KmSL4gLqcFSYuo69XNqHcy7"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                Solscan
-              </a>
+              This is the program ID declared in <code>anchor/Anchor.toml</code>. The repository targets localnet; local transactions do not appear in Solscan.
             </p>
           </CardContent>
         </Card>

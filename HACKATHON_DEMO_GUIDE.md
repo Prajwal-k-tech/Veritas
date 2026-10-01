@@ -1,5 +1,7 @@
 # 🎯 Hackathon Demo Guide - Veritas Voting System
 
+> **Archive notice (2026-10-02):** This historical demo script makes privacy and verifiability claims that are not supported by the current implementation. Do not present those claims as system guarantees. See the repository README and in-app Protocol Notes for current behavior and limitations.
+
 **Date:** October 27, 2025  
 **System:** Anonymous Blockchain Voting on Solana  
 **Demo Time:** ~10 minutes
