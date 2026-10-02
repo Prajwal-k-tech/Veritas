@@ -262,7 +262,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
       
       const connection = program.provider.connection
 
-      // Fetch all VoteAccount PDAs for this poll (ANONYMOUS - no voter identity!)
+      // Fetch the poll's VoteAccount PDAs. Their account data does not contain a voter field, but public transactions link the payer/signing voter to the VoteAccount PDA.
       // Encode poll_id as u64 (little-endian) for memcmp filter - browser-compatible
       const pollIdBuffer = Buffer.alloc(8)
       const view = new DataView(pollIdBuffer.buffer, pollIdBuffer.byteOffset, pollIdBuffer.byteLength)
@@ -291,38 +291,13 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
         ],
       })
 
-      console.log('=== TALLYING DEBUG ===')
-      console.log('Poll ID:', pollId)
-      console.log('Discriminator (hex):', discriminator.toString('hex'))
-      console.log('Discriminator (base58):', discriminatorBase58)
-      console.log('PollId buffer (hex):', pollIdBuffer.toString('hex'))
-      console.log('PollId (base58):', pollIdBase58)
-      console.log('Found VoteAccount instances:', accounts.length)
-      
-      // Log each account in EXTREME detail
-      accounts.forEach((acc, idx) => {
-        console.log(`\n--- Account ${idx} ---`)
-        console.log('Pubkey:', acc.pubkey.toBase58())
-        console.log('Owner:', acc.account.owner.toBase58())
-        console.log('Data length:', acc.account.data.length)
-        console.log('First 8 bytes (discriminator, hex):', acc.account.data.slice(0, 8).toString('hex'))
-        console.log('Bytes 8-16 (poll_id, hex):', acc.account.data.slice(8, 16).toString('hex'))
-        console.log('Full first 50 bytes (hex):', acc.account.data.slice(0, 50).toString('hex'))
-      })
-      console.log('\n======================')
-
       const voteCounts: Record<string, number> = {}
       poll.candidates.forEach((candidate: string) => {
         voteCounts[candidate] = 0
       })
 
-      console.log('=== DECRYPTION SETUP ===')
-      console.log('Admin secret key length:', encryptionKey.length)
-      console.log('Poll tallier pubkey:', poll.tallierPubkey)
-      console.log('Candidates to match:', poll.candidates)
-      console.log('========================')
-
-      // Decrypt each vote - Admin CANNOT determine which voter cast which vote!
+      // Decrypt each ballot locally. Public transaction metadata may still link
+      // a voter's address to its VoteAccount PDA.
       for (const account of accounts) {
         try {
           // MANUAL DECODE: Bypass Anchor's decoder to avoid IDL caching issues
@@ -333,10 +308,8 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
           const vecLenOffset = 16
           const vecLen = data.readUInt32LE(vecLenOffset)
           
-          console.log('Manual decode - Vec length:', vecLen)
-          
           if (vecLen === 0 || vecLen > 200) {
-            console.warn('Invalid encrypted vote length:', vecLen)
+            console.warn('Skipping ballot with invalid encrypted data length')
             continue
           }
           
@@ -344,16 +317,10 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
           const encryptedVoteStart = vecLenOffset + 4
           const encryptedVote = data.slice(encryptedVoteStart, encryptedVoteStart + vecLen)
           
-          console.log('Decrypting vote, encrypted length:', encryptedVote.length)
-          
           // Format: ephemeralPublicKey (32) + nonce (24) + ciphertext
           const ephemeralPublicKey = encryptedVote.slice(0, 32)
           const nonce = encryptedVote.slice(32, 56)
           const ciphertext = encryptedVote.slice(56)
-
-          console.log('Ephemeral pubkey length:', ephemeralPublicKey.length)
-          console.log('Nonce length:', nonce.length)
-          console.log('Ciphertext length:', ciphertext.length)
 
           // Decrypt using nacl.box.open (direct method)
           // nacl.box.open(ciphertext, nonce, theirPublicKey, mySecretKey)
@@ -361,17 +328,13 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
 
           if (decrypted) {
             const candidateName = new TextDecoder().decode(decrypted)
-            console.log('✅ Decrypted candidate:', candidateName)
             if (voteCounts[candidateName] !== undefined) {
               voteCounts[candidateName]++
-              console.log('✅ Vote counted for:', candidateName)
             } else {
-              console.warn('❌ Unknown candidate:', candidateName, 'Expected one of:', Object.keys(voteCounts))
+              console.warn('Skipping decrypted ballot with an unknown candidate')
             }
           } else {
-            console.error('❌ Failed to decrypt - incorrect key or corrupted data')
-            console.log('Debug - First 10 bytes of ciphertext:', ciphertext.slice(0, 10))
-            console.log('Debug - Admin secret key (first 10):', encryptionKey.slice(0, 10))
+            console.error('Failed to decrypt a ballot; check the tally key and ballot data')
           }
         } catch (err) {
           console.error('Failed to decrypt a vote:', err)
@@ -571,7 +534,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
               {csvFile && voters.length > 0 && (
                 <Alert>
                   <AlertDescription>
-                    ✅ Parsed {voters.length} valid voter address{voters.length !== 1 ? 'es' : ''} from CSV
+                    Parsed {voters.length} valid voter address{voters.length !== 1 ? 'es' : ''} from CSV
                   </AlertDescription>
                 </Alert>
               )}
@@ -605,7 +568,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
                 {registrationResults.success > 0 && (
                   <Alert>
                     <AlertDescription>
-                      ✅ Successfully registered {registrationResults.success} voter{registrationResults.success !== 1 ? 's' : ''}
+                      Successfully registered {registrationResults.success} voter{registrationResults.success !== 1 ? 's' : ''}
                       {registrationResults.failed > 0 && ` • ❌ ${registrationResults.failed} failed`}
                     </AlertDescription>
                   </Alert>
@@ -643,7 +606,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
         {/* Info Card */}
         <Card>
           <CardHeader>
-            <CardTitle>ℹ️ CSV Format</CardTitle>
+            <CardTitle>CSV Format</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <p className="text-sm text-muted-foreground">
@@ -682,7 +645,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
                 {encryptionKey && (
                   <Alert>
                     <AlertDescription>
-                      ✅ Encryption key loaded ({encryptionKey.length} bytes)
+                      Encryption key loaded ({encryptionKey.length} bytes)
                     </AlertDescription>
                   </Alert>
                 )}
@@ -698,11 +661,11 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
                 <div className="space-y-4">
                   <Alert>
                     <AlertDescription>
-                      <strong>✅ Results Published to Blockchain</strong>
+                      <strong>Result record submitted on-chain</strong>
                     </AlertDescription>
                   </Alert>
                   <div className="border rounded-lg p-4">
-                    <div className="font-semibold mb-3">Final Results:</div>
+                    <div className="font-semibold mb-3">Submitted counts (not verified by the program):</div>
                     <div className="space-y-2">
                       {tallyResults.map((result, i) => (
                         <div key={i} className="flex justify-between items-center p-2 bg-muted rounded">

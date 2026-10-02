@@ -49,7 +49,7 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
     setError('')
 
     try {
-      // Generate random nullifier for anonymous vote account
+      // Generate a random value for the VoteAccount PDA. This does not hide the voter signer or account relationship in the public transaction.
       const nullifier = new Uint8Array(32)
       crypto.getRandomValues(nullifier)
       
@@ -187,7 +187,7 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
           {hasVoted && (
             <Alert>
               <AlertDescription>
-                ✅ You voted in this poll. Your vote was counted in the results above.
+                Your encrypted ballot transaction is on-chain. The displayed tally is a submitted result record and is not verified against ballots by the program.
               </AlertDescription>
             </Alert>
           )}
@@ -202,13 +202,13 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md">
           <CardHeader>
-            <CardTitle>✅ Vote Submitted!</CardTitle>
-            <CardDescription>Your encrypted vote has been recorded on-chain</CardDescription>
+            <CardTitle>Vote Submitted</CardTitle>
+            <CardDescription>Your ballot was encrypted and recorded on-chain; this prototype does not provide voter anonymity.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Alert>
               <AlertDescription>
-                Your vote for <strong>{selectedCandidate}</strong> has been encrypted and stored on the Solana blockchain.
+                Your choice has been encrypted with the poll's tally public key and stored on Solana. The public transaction still exposes your wallet address and ballot-account relationship.
               </AlertDescription>
             </Alert>
             <div className="space-y-2">
@@ -262,13 +262,13 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
           <CardContent className="space-y-4">
             <Alert>
               <AlertDescription>
-                The poll admin is tallying the encrypted votes. Results will be published soon.
+                No result record is available yet. The app can decrypt ballots off-chain and submit counts, but the program allows any signer to submit an unverified result after voting ends.
               </AlertDescription>
             </Alert>
             {hasVoted && (
               <Alert>
                 <AlertDescription>
-                  ✅ You voted in this poll
+                  You have voted in this poll
                 </AlertDescription>
               </Alert>
             )}
@@ -323,7 +323,7 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
           <CardContent className="space-y-4">
             <Alert>
               <AlertDescription>
-                ✅ Your encrypted vote has been recorded. Results will be available after voting ends on {endDate.toLocaleString()}.
+                Your encrypted ballot was submitted. Public transaction metadata can link your wallet to its ballot account. Results may be published after voting ends on {endDate.toLocaleString()}, but the program does not verify a tally against the ballots.
               </AlertDescription>
             </Alert>
             <Button onClick={() => router.push('/')} className="w-full">
@@ -379,7 +379,7 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
           <CardHeader>
             <CardTitle>Cast Your Vote</CardTitle>
             <CardDescription>
-              Your vote will be encrypted before being stored on-chain
+              Your ballot is encrypted before storage. Your wallet and transaction metadata remain public.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -400,11 +400,11 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
               className="w-full"
               size="lg"
             >
-              {isVoting ? 'Submitting...' : '🔒 Submit Encrypted Vote'}
+              {isVoting ? 'Submitting...' : 'Submit Encrypted Vote'}
             </Button>
 
             <div className="text-xs text-muted-foreground text-center">
-              🔐 Your vote will be encrypted with TweetNaCl before submission
+              Encrypted ballot contents do not hide the wallet address or vote transaction from public observers.
             </div>
           </CardContent>
         </Card>

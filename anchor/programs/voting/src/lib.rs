@@ -73,7 +73,7 @@ pub mod voting { //smart contract name
     pub fn vote(
         ctx: Context<Vote>,
         _poll_id: u64,
-        nullifier: [u8; 32], // Random value for anonymous PDA
+        nullifier: [u8; 32], // Random value for the VoteAccount PDA; it does not hide public transaction metadata
         encrypted_vote: Vec<u8>, // Decrypted later by poll owner while tallying 
     ) -> Result<()> {
         let current_time = Clock::get()?.unix_timestamp;
@@ -98,7 +98,8 @@ pub mod voting { //smart contract name
         // Validate encrypted vote size (minimum: 32 + 24 + 1 + 16 = 73 bytes)
         require!(encrypted_vote.len() >= 73, ErrorCode::InvalidEncryptedVote);
 
-        // Store encrypted vote in ANONYMOUS vote account
+        // Store encrypted ballot bytes in a VoteAccount derived from the nullifier.
+        // The public transaction still includes the voter and VoteAccount accounts.
         vote_account.poll_id = _poll_id;
         vote_account.encrypted_vote = encrypted_vote;
         vote_account.nullifier = nullifier;
@@ -314,7 +315,8 @@ pub struct PollAccount {
 pub struct VoterRegistry {
     pub registered: bool,
     pub has_voted: bool,
-    // encrypted_vote removed - votes stored in separate anonymous VoteAccount
+    // Ballots use separate VoteAccounts derived from a nullifier. The public
+    // transaction still exposes the voter signer and VoteAccount relationship.
 }
 
 #[account]
@@ -323,7 +325,7 @@ pub struct VoteAccount {
     pub poll_id: u64,
     #[max_len(150)] // TweetNaCl: 32 (ephemeral_key) + 24 (nonce) + 32 (max candidate) + 16 (MAC) + buffer
     pub encrypted_vote: Vec<u8>,
-    pub nullifier: [u8; 32], // Random value used in PDA seed for anonymity
+    pub nullifier: [u8; 32], // Random value used in the VoteAccount PDA seed; it does not provide anonymity
 }
 
 #[account]
