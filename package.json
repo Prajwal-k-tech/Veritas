@@ -15,7 +15,7 @@
   },
   "displayName": "Veritas",
   "usecase": "Blockchain Voting",
-  "description": "Secure blockchain voting system on Solana with encrypted ballots and verifiable results",
+  "description": "Solana voting prototype with client-encrypted ballots and unverified result submission",
   "keywords": [
     "anchor-counter",
     "nextjs",
