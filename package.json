@@ -4,6 +4,7 @@
     "anchor": "cd anchor && anchor",
     "anchor-build": "cd anchor && anchor build",
     "anchor-localnet": "cd anchor && anchor localnet",
+    "anchor-localnet-smoke": "node scripts/localnet-smoke.cjs",
     "anchor-test": "cd anchor && anchor test",
     "build": "next build",
     "ci": "npm run build && npm run lint && npm run format:check",

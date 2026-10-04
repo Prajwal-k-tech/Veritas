@@ -1,5 +1,7 @@
 # Student Voting System - Hackathon Implementation
 
+> **Archive notice (2026-10-04):** This hackathon draft predates the current program address and verified localnet flow. Its completion, security, privacy, and testing statements are historical and are not evidence of current behavior. Use the repository README and in-app Protocol Notes for the current implementation, verified flow, and limits.
+
 ## [COMPLETE] Complete Implementation
 
 A secure, encrypted voting system built on Solana with Next.js frontend. All hackathon requirements met!
