@@ -12,9 +12,9 @@ Veritas is a Solana voting prototype with an Anchor program and a Next.js interf
 
 The `VoteCastEvent` includes the voter's public key and timestamp. Although ballot content is encrypted, public identity and transaction timing can help correlate a registry update with a ballot account. The separate-account and nullifier design does not provide anonymity.
 
-Anyone may call `publish_results` after voting ends. The program checks only that the result array has the same number of entries as the poll's candidates. It does not check candidate names or counts against ballots. The results account is initialized once, so the first caller can publish fabricated results and prevent later replacement. The tally is not trustlessly verifiable by the contract. Do not use this prototype for real elections or sensitive votes.
+Only the poll admin may call `publish_results` after voting ends. The program checks that the result array has the poll's candidate names in the configured order and rejects count overflow. It does not verify the submitted counts against the encrypted ballots, so an incorrect admin tally can still be accepted. The results account is initialized once, so the first admin submission prevents later replacement through this program. The tally is not trustlessly verifiable by the contract. Do not use this prototype for real elections or sensitive votes.
 
-The poll creator generates the TweetNaCl tally key in the browser. The interface offers it as a file download; there is no server-side key custody or recovery. The private key is not stored in program accounts. Losing it prevents decrypting the ballots, while anyone can still submit an unverified result record after the poll ends.
+The poll creator generates the TweetNaCl tally key in the browser. The interface offers it as a file download; there is no server-side key custody or recovery. The private key is not stored in program accounts. Losing it prevents decrypting the ballots, and only the poll admin may submit a result record after the poll ends.
 
 ## Local development
 
@@ -53,6 +53,12 @@ Open [http://localhost:3000](http://localhost:3000) and connect a wallet configu
 
 Verified on 4 October 2026 with Anchor CLI 0.31.1 and Agave/Solana CLI 2.1.0. `npm run anchor-build` succeeded, and `npm run anchor-localnet` loaded the compiled program at `H2S4xQeQgwSSZ1nyRjqP6KmSL4gLqcFSYuo69XNqHcy7`. The program bytes dumped from the validator matched `anchor/target/deploy/voting.so` by SHA-256. The smoke check confirmed one decrypted `Option A` ballot, rejected a second vote from the same address with `AlreadyVoted`, rejected early publication with `VotingNotEnded`, then fetched a result record containing `Option A: 1`, `Option B: 0`, total `1`.
 
+## Contract checks
+
+After compiling the program, run `npm run test:contracts` for the local bankrun lifecycle and rejection checks, and `npm run test:rust` for tally validation. The tests use generated local accounts and do not contact a public chain. `npm run anchor-localnet-smoke` additionally checks a real local validator.
+
+**Contract verification (7 October 2026):** the program rebuilt successfully with the official `solanafoundation/anchor:v0.31.1` image (Anchor 0.31.1, Solana CLI 2.1.0; image digest `sha256:21ab8a16e19df4301a198d7a55ab2988549aa2d996e6b5ad229c1d95b9f2d326`). The rebuilt `voting.so` SHA-256 is `ac91b7b2b5bb8bd5f6907f7c0aaa0bc9d685e2d52b1e5dc81f59a42d9c62bad7`. The bankrun suite passes 11 tests covering voter authorization, registration state, ballot encryption/decryption, duplicate votes, start/end boundaries, rollback on invalid ballots and poll creation, candidate limits, and tally validation. A second smoke run used an Agave 2.1.0 local validator with that exact program binary and a throwaway wallet. It accepted one encrypted ballot, rejected repeat voting, early publication, unauthorized publication, and a candidate-name mismatch, then stored and retrieved the expected tally. Neither check contacts a public cluster or establishes production security.
+
 ## Stack and project guides
 
 - Solana program written in Rust with Anchor
@@ -61,16 +67,14 @@ Verified on 4 October 2026 with Anchor CLI 0.31.1 and Agave/Solana CLI 2.1.0. `n
 - TweetNaCl.js for client-side ballot encryption
 - Tailwind CSS and shadcn/ui components
 
-The repository retains hackathon-era material in `HACKATHON.md`, `HACKATHON_DEMO_GUIDE.md`, and `SMART_CONTRACT_GUIDE.md`. Their historical claims are superseded by this README and the protocol notes in the app; they do not describe verified security properties.
-
 ## On-chain persistence and security limits
 
 - `PollAccount` stores public poll metadata, candidates, times, admin address, and tally public key. A `VoterRegistry` PDA is derived from the poll ID and voter address and stores registration and whether that address has voted.
 - `VoteAccount` stores the poll ID, random nullifier, and encrypted ballot bytes in a separate PDA. The transaction still names the voter signer and ballot account; `VoteCastEvent` also includes voter address and timestamp. Separate accounts and random nullifiers do not provide anonymity or stop transaction correlation.
 - Ballot bytes are readable on the public chain. Encryption hides the selected candidate from readers who lack the tally private key; it does not hide wallet addresses, registration, timing, or account relationships.
-- The poll creator's tally key can decrypt ballots, but the program does not enforce who holds or uses it. Anyone may submit results after voting ends.
-- `ResultsAccount` stores caller-submitted candidate names, counts, and total. The program checks only the array length; it does not verify names or counts against the poll or ballots.
-- The results PDA can be created only once, so a fabricated first tally occupies the result address with no correction flow through this program.
+- The poll creator's tally key can decrypt ballots, but the program does not enforce who holds or uses it. Only the poll admin may submit results after voting ends.
+- `ResultsAccount` stores caller-submitted candidate names, counts, and total. The program validates candidate count and ordered names against the poll and rejects total-count overflow. It does not cryptographically verify counts against encrypted ballots.
+- The results PDA can be created only once, so the admin’s first tally occupies the result address with no correction flow through this program.
 - No independent security review or production readiness evidence is documented.
 
 Treat the system as a prototype for studying blockchain application design and privacy trade-offs.

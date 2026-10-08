@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { useVotingProgram } from '@/components/voting/voting-data-access'
 import Papa from 'papaparse'
 import nacl from 'tweetnacl'
+import { utils } from '@coral-xyz/anchor'
 
 export default function ManagePollPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
@@ -48,13 +49,13 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
     setCsvFile(file)
     setError('')
     
-    Papa.parse(file, {
+    Papa.parse<string[]>(file, {
       complete: (results) => {
         try {
           const voterAddresses: string[] = []
           
           // Parse CSV - expect one public key per row
-          results.data.forEach((row: any, index) => {
+          results.data.forEach((row, index) => {
             if (Array.isArray(row) && row.length > 0) {
               const address = row[0].trim()
               if (address) {
@@ -62,7 +63,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
                 try {
                   new PublicKey(address)
                   voterAddresses.push(address)
-                } catch (err) {
+                } catch {
                   console.warn(`Row ${index + 1}: Invalid public key: ${address}`)
                 }
               }
@@ -71,7 +72,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
           
           setVoters(voterAddresses)
           setError('')
-        } catch (err: any) {
+        } catch {
           setError('Failed to parse CSV file. Make sure each row contains a valid Solana public key.')
         }
       },
@@ -100,9 +101,10 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
           voter: voterPubkey
         })
         successCount++
-      } catch (err: any) {
+      } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
         failedCount++
-        const errorMsg = `${voters[i].slice(0, 8)}...: ${err.message || 'Unknown error'}`
+        const errorMsg = `${voters[i].slice(0, 8)}...: ${message || 'Unknown error'}`
         errors.push(errorMsg)
         console.error(`Failed to register ${voters[i]}:`, err)
       }
@@ -207,8 +209,9 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
         failed: prev.failed,
         errors: prev.errors
       }))
-    } catch (err: any) {
-      setError(err.message || 'Failed to register voter')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setError(message || 'Failed to register voter')
     }
   }
 
@@ -241,7 +244,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
         } else {
           setTallyError('Invalid encryption key format. Expected 32-byte array.')
         }
-      } catch (err) {
+      } catch {
         setTallyError('Failed to parse encryption key file.')
       }
     }
@@ -262,16 +265,16 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
       
       const connection = program.provider.connection
 
-      // Fetch the poll's VoteAccount PDAs. Their account data does not contain a voter field, but public transactions link the payer/signing voter to the VoteAccount PDA.
+      // Fetch the poll’s VoteAccount PDAs. Their account data does not contain a voter field, but public transactions link the payer/signing voter to the VoteAccount PDA.
       // Encode poll_id as u64 (little-endian) for memcmp filter - browser-compatible
       const pollIdBuffer = Buffer.alloc(8)
       const view = new DataView(pollIdBuffer.buffer, pollIdBuffer.byteOffset, pollIdBuffer.byteLength)
       view.setBigUint64(0, BigInt(pollId), true) // true = little-endian
-      const pollIdBase58 = require('bs58').encode(pollIdBuffer)
+      const pollIdBase58 = utils.bytes.bs58.encode(pollIdBuffer)
 
       // VoteAccount discriminator: sha256("account:VoteAccount")[0:8]
       const discriminator = Buffer.from('cbee9a6ac8830029', 'hex')
-      const discriminatorBase58 = require('bs58').encode(discriminator)
+      const discriminatorBase58 = utils.bytes.bs58.encode(discriminator)
 
       // Filter by BOTH discriminator (to get only VoteAccount) AND poll_id
       const accounts = await connection.getProgramAccounts(program.programId, {
@@ -297,7 +300,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
       })
 
       // Decrypt each ballot locally. Public transaction metadata may still link
-      // a voter's address to its VoteAccount PDA.
+      // a voter’s address to its VoteAccount PDA.
       for (const account of accounts) {
         try {
           // MANUAL DECODE: Bypass Anchor's decoder to avoid IDL caching issues
@@ -358,8 +361,9 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
         })),
       })
 
-    } catch (err: any) {
-      setTallyError(err.message || 'Failed to tally and publish results')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setTallyError(message || 'Failed to tally and publish results')
     } finally {
       setIsTallying(false)
     }
@@ -493,7 +497,7 @@ export default function ManagePollPage({ params }: { params: Promise<{ id: strin
         <Card>
           <CardHeader>
             <CardTitle>Register Single Voter</CardTitle>
-            <CardDescription>Enter a voter's public key to register them</CardDescription>
+            <CardDescription>Enter a voter’s public key to register them</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex gap-2">

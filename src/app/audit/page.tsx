@@ -31,7 +31,7 @@ export default function AuditLogPage() {
               The program emits public events for poll creation, voter registration, ballot casting, and result publication. These records help inspect transactions, but they do not prove that a submitted tally matches the encrypted ballots or provide voter anonymity.
             </p>
             <p>
-              The smart contract emits four types of events using Anchor's <code className="bg-muted px-1 py-0.5 rounded">emit!</code> macro:
+              The smart contract emits four types of events using Anchor’s <code className="bg-muted px-1 py-0.5 rounded">emit!</code> macro:
             </p>
           </CardContent>
         </Card>
@@ -57,7 +57,7 @@ pub struct PollCreatedEvent {
     pub end_time: u64,
 }
 
-// The program emits the poll's public metadata.`}</pre>
+// The program emits the poll’s public metadata.`}</pre>
               </div>
             </div>
 
@@ -144,7 +144,7 @@ pub struct CandidateResult {
                 <li>The frontend encrypts the selected candidate with TweetNaCl before submitting ballot bytes.</li>
                 <li>The vote transaction publicly includes the voter signer and the VoteAccount PDA; a random nullifier does not hide that transaction relationship.</li>
                 <li>The program emits the voter address and timestamp for each vote.</li>
-                <li>Ballot contents can be decrypted by whoever holds the poll's tally private key. The on-chain program does not enforce who holds or uses it.</li>
+                <li>Ballot contents can be decrypted by whoever holds the poll’s tally private key. The on-chain program does not enforce who holds or uses it.</li>
                 <li>This prototype does not provide voter anonymity or an independently audited privacy guarantee.</li>
               </ul>
             </div>
@@ -152,12 +152,12 @@ pub struct CandidateResult {
             <div>
               <h4 className="font-semibold mb-2">Trust Model</h4>
               <p className="text-muted-foreground mb-2">
-                The app's tally interface expects a private key and calculates counts off-chain. The program's result instruction is permissionless after voting ends:
+                The app’s tally interface expects a private key and calculates counts off-chain. The program’s result instruction requires the poll admin after voting ends:
               </p>
               <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                <li>Any signer may call <code>publish_results</code> after the poll ends; the instruction checks the result-array length but does not verify candidate names or counts against ballots.</li>
-                <li>The results PDA is initialized once. A fabricated first submission can occupy it and prevent a later replacement through this program.</li>
-                <li>The creator's tally key can decrypt ballots; published counts still depend on a caller's submitted values.</li>
+                <li>Only the poll admin may call <code>publish_results</code> after the poll ends. The instruction validates candidate names and array length and rejects count overflow; it does not cryptographically verify counts against encrypted ballots.</li>
+                <li>The results PDA is initialized once. An incorrect first admin submission can occupy it and prevent a later replacement through this program.</li>
+                <li>The creator’s tally key can decrypt ballots; published counts still depend on the admin’s submitted values.</li>
                 <li>Do not use this prototype for real elections or sensitive votes.</li>
               </ul>
             </div>
@@ -202,7 +202,7 @@ pub struct CandidateResult {
               <strong>Evaluation opportunity:</strong> This implementation makes a useful study of the gap between encrypted ballot storage and end-to-end verifiable voting.
             </p>
             <p>
-              <strong>Current limit:</strong> Public metadata can link voting activity to wallet addresses, and the program accepts an unverified first result submission after the poll ends.
+              <strong>Current limit:</strong> Public metadata can link voting activity to wallet addresses, and the poll admin can submit an unverified first tally after the poll ends.
             </p>
           </CardContent>
         </Card>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react'
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor'
 import { PublicKey } from '@solana/web3.js'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -13,15 +13,16 @@ const PROGRAM_ID = new PublicKey('H2S4xQeQgwSSZ1nyRjqP6KmSL4gLqcFSYuo69XNqHcy7')
 export function useVotingProgram() {
   const { connection } = useConnection()
   const wallet = useWallet()
+  const anchorWallet = useAnchorWallet()
 
   const provider = useMemo(() => {
-    if (!wallet.publicKey) return null
-    return new AnchorProvider(connection, wallet as any, { commitment: 'confirmed' })
-  }, [connection, wallet])
+    if (!anchorWallet) return null
+    return new AnchorProvider(connection, anchorWallet, { commitment: 'confirmed' })
+  }, [connection, anchorWallet])
 
   const program = useMemo(() => {
     if (!provider) return null
-    return new Program(IDL as Voting, provider)
+    return new Program<Voting>(IDL as Voting, provider)
   }, [provider])
 
   // Derive PDAs
@@ -63,7 +64,7 @@ export function useVotingProgram() {
       
       const tx = await program.methods
         .initializeCounter()
-        .accounts({
+        .accountsPartial({
           admin: wallet.publicKey,
           counter: counterPDA,
         })
@@ -89,10 +90,10 @@ export function useVotingProgram() {
       // Fetch the current counter to get the next poll ID
       let pollId: number
       try {
-        const counterAccount: any = await (program.account as any).globalPollCounter.fetch(counterPDA)
+        const counterAccount = await program.account.globalPollCounter.fetch(counterPDA)
         // CRITICAL: Convert BN to number (nextPollId is a BN object from Anchor)
         pollId = counterAccount.nextPollId.toNumber()
-      } catch (e) {
+      } catch {
         // Counter doesn't exist - this is the first poll, so pollId = 1
         console.log('Counter not found, assuming first poll (ID = 1)')
         pollId = 1
@@ -112,7 +113,7 @@ export function useVotingProgram() {
           params.candidates,
           params.tallierPubkey
         )
-        .accounts({
+        .accountsPartial({
           admin: wallet.publicKey,
           counter: counterPDA,
           pollAccount: pollPDA,
@@ -134,7 +135,7 @@ export function useVotingProgram() {
       
       const tx = await program.methods
         .registerVoter(new BN(params.pollId))
-        .accounts({
+        .accountsPartial({
           pollAccount: pollPDA,
           admin: wallet.publicKey,
           voter: params.voter,
@@ -170,7 +171,7 @@ export function useVotingProgram() {
           params.nullifier,
           params.encryptedVote
         )
-        .accounts({
+        .accountsPartial({
           pollAccount: pollPDA,
           voterRegistry: voterRegistryPDA,
           voter: wallet.publicKey,
@@ -195,7 +196,7 @@ export function useVotingProgram() {
       
       const tx = await program.methods
         .publishResults(new BN(params.pollId), params.results)
-        .accounts({
+        .accountsPartial({
           publisher: wallet.publicKey,
           pollAccount: pollPDA,
           resultsAccount: resultsPDA,
@@ -213,7 +214,7 @@ export function useVotingProgram() {
       queryFn: async () => {
         if (!program) return null
         const pda = getCounterPDA()
-        return await (program.account as any).globalPollCounter.fetch(pda)
+        return await program.account.globalPollCounter.fetch(pda)
       },
       enabled: !!program,
     })
@@ -226,7 +227,7 @@ export function useVotingProgram() {
       queryFn: async () => {
         if (!program) return null
         const pda = getPollPDA(pollId)
-        return await (program.account as any).pollAccount.fetch(pda)
+        return await program.account.pollAccount.fetch(pda)
       },
       enabled: !!program && pollId > 0,
     })
@@ -241,7 +242,7 @@ export function useVotingProgram() {
         try {
           const voterPubkey = new PublicKey(voter)
           const pda = getVoterRegistryPDA(pollId, voterPubkey)
-          return await (program.account as any).voterRegistry.fetch(pda)
+          return await program.account.voterRegistry.fetch(pda)
         } catch (error) {
           console.log('Voter not registered:', error)
           return null
@@ -256,7 +257,7 @@ export function useVotingProgram() {
         if (!program) return null
         const pda = getResultsPDA(pollId)
         try {
-          return await (program.account as any).resultsAccount.fetch(pda)
+          return await program.account.resultsAccount.fetch(pda)
         } catch {
           return null // Not published yet
         }

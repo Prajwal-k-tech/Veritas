@@ -146,6 +146,36 @@ async function main() {
     candidateName,
     voteCount: new anchor.BN(decryptedVotes.filter((vote) => vote === candidateName).length),
   }))
+  const outsider = Keypair.generate()
+  const fundTx = new anchor.web3.Transaction().add(SystemProgram.transfer({
+    fromPubkey: voter, toPubkey: outsider.publicKey, lamports: 100_000_000,
+  }))
+  await provider.sendAndConfirm(fundTx)
+  let unauthorizedPublishRejected = false
+  try {
+    await program.methods.publishResults(new anchor.BN(pollId), voteCounts).accounts({
+      publisher: outsider.publicKey, pollAccount: poll, resultsAccount: results,
+      systemProgram: SystemProgram.programId,
+    }).signers([outsider]).rpc()
+  } catch (error) {
+    unauthorizedPublishRejected = error?.error?.errorCode?.code === 'ConstraintHasOne'
+    if (!unauthorizedPublishRejected) throw error
+  }
+  assert.ok(unauthorizedPublishRejected, 'Only the poll admin may publish results')
+  assert.equal(await provider.connection.getAccountInfo(results), null, 'Unauthorized creation must roll back')
+  let invalidCandidateRejected = false
+  try {
+    await program.methods.publishResults(new anchor.BN(pollId), [
+      { candidateName: 'Wrong candidate', voteCount: new anchor.BN(1) }, voteCounts[1],
+    ]).accounts({publisher: voter, pollAccount: poll, resultsAccount: results,
+      systemProgram: SystemProgram.programId}).rpc()
+  } catch (error) {
+    invalidCandidateRejected = error?.error?.errorCode?.code === 'InvalidTallyCount'
+    if (!invalidCandidateRejected) throw error
+  }
+  assert.ok(invalidCandidateRejected, 'Candidate names must match the poll in order')
+  assert.equal(await provider.connection.getAccountInfo(results), null, 'Invalid tally creation must roll back')
+
   await program.methods.publishResults(new anchor.BN(pollId), voteCounts).accounts({
     publisher: voter,
     pollAccount: poll,
@@ -166,6 +196,8 @@ async function main() {
     ballotCount: ballots.length,
     doubleVoteRejected,
     earlyPublishRejected,
+    unauthorizedPublishRejected,
+    invalidCandidateRejected,
     results: savedResults.results.map(({ candidateName, voteCount }) => [candidateName, voteCount.toNumber()]),
     totalVotes: savedResults.totalVotes.toNumber(),
   }, null, 2))

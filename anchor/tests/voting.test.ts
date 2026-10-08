@@ -1,510 +1,277 @@
-import * as anchor from '@coral-xyz/anchor';
-import { BN, Program } from '@coral-xyz/anchor';
-import { Keypair, PublicKey } from '@solana/web3.js';
-import { startAnchor, BanksClient, ProgramTestContext } from 'solana-bankrun';
-import { BankrunProvider } from 'anchor-bankrun';
-import { Voting } from '../target/types/voting';
-import * as nacl from 'tweetnacl';
+import path from 'node:path'
+import * as anchor from '@coral-xyz/anchor'
+import { Keypair, PublicKey, SystemProgram } from '@solana/web3.js'
+import { startAnchor, Clock } from 'solana-bankrun'
+import { BankrunProvider } from 'anchor-bankrun'
+import * as nacl from 'tweetnacl'
 
-describe('Voting System', () => {
-  let context: ProgramTestContext;
-  let provider: BankrunProvider;
-  let program: Program<Voting>;
-  let banksClient: BanksClient;
-  
-  let admin: Keypair;
-  let voter1: Keypair;
-  let voter2: Keypair;
-  let voter3: Keypair;
-  let encryptionKeypair: nacl.BoxKeyPair;
-  
-  let counterPda: PublicKey;
-  let pollPda: PublicKey;
-  let poll_id: number;
+// Execute the compiled Solana program in bankrun; no remote RPC or private wallet.
+describe('Local voting lifecycle', () => {
+  let context: any, program: any, admin: Keypair, outsider: Keypair
+  let counter: PublicKey, poll: PublicKey, registry: PublicKey, resultAccount: PublicKey
+  const id = new anchor.BN(1)
+  const candidates = ['A', 'B']
+  const tallyKey = nacl.box.keyPair()
+  const programId = new PublicKey('H2S4xQeQgwSSZ1nyRjqP6KmSL4gLqcFSYuo69XNqHcy7')
+  const pda = (seed: string, pollId = id) =>
+    PublicKey.findProgramAddressSync([Buffer.from(seed), pollId.toArrayLike(Buffer, 'le', 8)], programId)[0]
+  const voterPda = (voter: PublicKey, pollId = id) =>
+    PublicKey.findProgramAddressSync(
+      [Buffer.from('voter'), pollId.toArrayLike(Buffer, 'le', 8), voter.toBuffer()],
+      programId,
+    )[0]
+  const votePda = (nullifier: Uint8Array, pollId = id) =>
+    PublicKey.findProgramAddressSync(
+      [Buffer.from('vote'), pollId.toArrayLike(Buffer, 'le', 8), Buffer.from(nullifier)],
+      programId,
+    )[0]
+  const account = () => ({
+    lamports: 10_000_000_000,
+    data: Buffer.alloc(0),
+    owner: SystemProgram.programId,
+    executable: false,
+  })
+  const setTime = (time: bigint) => context.setClock(new Clock(time, 0n, 0n, 0n, time))
+  const publish = (signer: Keypair, results: any[]) =>
+    program.methods
+      .publishResults(id, results)
+      .accounts({
+        publisher: signer.publicKey,
+        pollAccount: poll,
+        resultsAccount: resultAccount,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([signer])
+      .rpc()
+  const counts = () =>
+    candidates.map((candidateName, i) => ({ candidateName, voteCount: new anchor.BN(i === 0 ? 1 : 0) }))
+  const register = (voter: Keypair, pollId = id) =>
+    program.methods
+      .registerVoter(pollId)
+      .accounts({
+        admin: admin.publicKey,
+        voter: voter.publicKey,
+        pollAccount: pda('poll', pollId),
+        voterRegistry: voterPda(voter.publicKey, pollId),
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([admin])
+      .rpc()
+  const encryptedBallot = (candidate = 'A') => {
+    const ephemeral = nacl.box.keyPair(),
+      nonce = nacl.randomBytes(24)
+    return Buffer.concat([
+      Buffer.from(ephemeral.publicKey),
+      Buffer.from(nonce),
+      Buffer.from(nacl.box(Buffer.from(candidate), nonce, tallyKey.publicKey, ephemeral.secretKey)),
+    ])
+  }
+  const castVote = (voter: Keypair, nullifier: Uint8Array, encrypted = encryptedBallot(), pollId = id) =>
+    program.methods
+      .vote(pollId, Array.from(nullifier), encrypted)
+      .accounts({
+        voter: voter.publicKey,
+        pollAccount: pda('poll', pollId),
+        voterRegistry: voterPda(voter.publicKey, pollId),
+        voteAccount: votePda(nullifier, pollId),
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([voter])
+      .rpc()
 
   beforeAll(async () => {
-    // Start bankrun with our program
-    context = await startAnchor(
-      '',
-      [{ name: 'voting', programId: new PublicKey('H2S4xQeQgwSSZ1nyRjqP6KmSL4gLqcFSYuo69XNqHcy7') }],
-      []
-    );
+    context = await startAnchor(path.resolve(__dirname, '..'), [], [])
+    admin = Keypair.generate()
+    outsider = Keypair.generate()
+    context.setAccount(admin.publicKey, account())
+    context.setAccount(outsider.publicKey, account())
+    const provider = new BankrunProvider(context)
+    program = new anchor.Program(require('../target/idl/voting.json'), provider)
+    setTime(10n)
+    counter = PublicKey.findProgramAddressSync([Buffer.from('global_counter')], programId)[0]
+    poll = pda('poll')
+    resultAccount = pda('results')
+    registry = PublicKey.findProgramAddressSync(
+      [Buffer.from('voter'), id.toArrayLike(Buffer, 'le', 8), admin.publicKey.toBuffer()],
+      programId,
+    )[0]
+    await program.methods
+      .initializeCounter()
+      .accounts({ admin: admin.publicKey, counter, systemProgram: SystemProgram.programId })
+      .signers([admin])
+      .rpc()
+    await program.methods
+      .initializePoll(new anchor.BN(20), 'Test poll', 'Lifecycle test', candidates, Array.from(tallyKey.publicKey))
+      .accounts({ admin: admin.publicKey, counter, pollAccount: poll, systemProgram: SystemProgram.programId })
+      .signers([admin])
+      .rpc()
+  })
 
-    provider = new BankrunProvider(context);
-    anchor.setProvider(provider);
-    
-    program = new Program<Voting>(
-      require('../target/idl/voting.json'),
-      provider
-    );
-    
-    banksClient = context.banksClient;
-    
-    // Generate test accounts
-    admin = Keypair.generate();
-    voter1 = Keypair.generate();
-    voter2 = Keypair.generate();
-    voter3 = Keypair.generate();
-    
-    // Generate encryption keypair for admin
-    encryptionKeypair = nacl.box.keyPair();
-    
-    // Airdrop SOL to accounts
-    await banksClient.requestAirdrop(admin.publicKey, 10_000_000_000);
-    await banksClient.requestAirdrop(voter1.publicKey, 1_000_000_000);
-    await banksClient.requestAirdrop(voter2.publicKey, 1_000_000_000);
-    await banksClient.requestAirdrop(voter3.publicKey, 1_000_000_000);
-    
-    // Derive GlobalPollCounter PDA
-    [counterPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('global_counter')],
-      program.programId
-    );
-  });
-
-  describe('Phase 1: Poll Creation', () => {
-    it('Initializes the global poll counter', async () => {
-      const tx = await program.methods
-        .initializeCounter()
+  it('rejects non-admin voter registration', async () => {
+    await expect(
+      program.methods
+        .registerVoter(id)
         .accounts({
-          admin: admin.publicKey,
-          counter: counterPda,
+          admin: outsider.publicKey,
+          voter: admin.publicKey,
+          pollAccount: poll,
+          voterRegistry: registry,
+          systemProgram: SystemProgram.programId,
         })
-        .signers([admin])
-        .rpc({ commitment: 'confirmed' });
+        .signers([outsider])
+        .rpc(),
+    ).rejects.toThrow('ConstraintHasOne')
+  })
 
-      const counterAccount = await program.account.globalPollCounter.fetch(counterPda);
-      expect(counterAccount.nextPollId.toNumber()).toBe(1);
-    });
+  it('registers, encrypts, stores and decrypts one ballot; rejects repeat voting', async () => {
+    await register(admin)
+    const encrypted = encryptedBallot()
+    const firstNullifier = nacl.randomBytes(32)
+    // Poll creation set the start to timestamp 10; this vote is accepted exactly at start.
+    await castVote(admin, firstNullifier, encrypted)
+    await expect(castVote(admin, nacl.randomBytes(32), encrypted)).rejects.toThrow('AlreadyVoted')
+    const firstVotePda = votePda(firstNullifier)
+    const ballot = await program.account.voteAccount.fetch(firstVotePda)
+    const data = Buffer.from(ballot.encryptedVote)
+    const plain = nacl.box.open(data.subarray(56), data.subarray(32, 56), data.subarray(0, 32), tallyKey.secretKey)
+    expect(Buffer.from(plain!).toString()).toBe('A')
+  })
 
-    it('Creates a poll with auto-incrementing ID', async () => {
-      const now = Math.floor(Date.now() / 1000);
-      const startTime = new BN(now - 10); // Started 10 seconds ago (for testing)
-      const endTime = new BN(now + 3600); // Ends in 1 hour
-      
-      const candidates = ['Alice', 'Bob', 'Charlie'];
-      
-      // Counter is at 1, so poll_id will be 1
-      poll_id = 1;
-      [pollPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('poll'), new BN(poll_id).toArrayLike(Buffer, 'le', 8)],
-        program.programId
-      );
+  it('rejects a vote before the window, accepts the exact deadline and rejects the next second', async () => {
+    const earlyVoter = Keypair.generate(),
+      deadlineVoter = Keypair.generate(),
+      lateVoter = Keypair.generate()
+    context.setAccount(earlyVoter.publicKey, account())
+    context.setAccount(deadlineVoter.publicKey, account())
+    context.setAccount(lateVoter.publicKey, account())
+    await register(earlyVoter)
+    await register(deadlineVoter)
+    await register(lateVoter)
+    setTime(9n)
+    const earlyNullifier = nacl.randomBytes(32)
+    await expect(castVote(earlyVoter, earlyNullifier)).rejects.toThrow('VotingNotStarted')
+    expect(await context.banksClient.getAccount(votePda(earlyNullifier))).toBeNull()
+    expect((await program.account.voterRegistry.fetch(voterPda(earlyVoter.publicKey))).hasVoted).toBe(false)
+    setTime(20n)
+    const deadlineNullifier = nacl.randomBytes(32)
+    await castVote(deadlineVoter, deadlineNullifier)
+    expect((await program.account.voterRegistry.fetch(voterPda(deadlineVoter.publicKey))).hasVoted).toBe(true)
+    setTime(21n)
+    const lateNullifier = nacl.randomBytes(32)
+    await expect(castVote(lateVoter, lateNullifier)).rejects.toThrow('VotingEnded')
+    expect(await context.banksClient.getAccount(votePda(lateNullifier))).toBeNull()
+    expect((await program.account.voterRegistry.fetch(voterPda(lateVoter.publicKey))).hasVoted).toBe(false)
+  })
 
-      const tx = await program.methods
+  it('returns VoterNotRegistered for a valid registry account with registration disabled', async () => {
+    const unregistered = Keypair.generate(),
+      nullifier = nacl.randomBytes(32)
+    context.setAccount(unregistered.publicKey, account())
+    const registryAddress = voterPda(unregistered.publicKey)
+    const registryDiscriminator = require('../target/idl/voting.json').accounts.find(
+      (account: any) => account.name === 'VoterRegistry',
+    ).discriminator
+    const registryData = Buffer.from([...registryDiscriminator, 0, 0])
+    context.setAccount(registryAddress, {
+      lamports: 1_000_000,
+      data: registryData,
+      owner: programId,
+      executable: false,
+    })
+    setTime(10n)
+    await expect(castVote(unregistered, nullifier)).rejects.toThrow('VoterNotRegistered')
+    expect(await context.banksClient.getAccount(votePda(nullifier))).toBeNull()
+  })
+
+  it('enforces candidate-count limits and rolls failed poll creation back', async () => {
+    const tenCandidates = Array.from({ length: 10 }, (_, i) => `C${i + 1}`)
+    const validId = new anchor.BN(2),
+      validPoll = pda('poll', validId)
+    await program.methods
+      .initializePoll(
+        new anchor.BN(30),
+        'Ten candidates',
+        'Upper valid boundary',
+        tenCandidates,
+        Array.from(tallyKey.publicKey),
+      )
+      .accounts({ admin: admin.publicKey, counter, pollAccount: validPoll, systemProgram: SystemProgram.programId })
+      .signers([admin])
+      .rpc()
+    expect((await program.account.pollAccount.fetch(validPoll)).candidates).toHaveLength(10)
+
+    const invalidId = new anchor.BN(3),
+      invalidPoll = pda('poll', invalidId)
+    const createInvalid = (candidateNames: string[]) =>
+      program.methods
         .initializePoll(
-          startTime,
-          endTime,
-          'Best Candidate Poll',
-          'Vote for the best candidate for class president',
-          candidates,
-          Array.from(encryptionKeypair.publicKey)
+          new anchor.BN(30),
+          'Invalid candidates',
+          'Must not create this poll',
+          candidateNames,
+          Array.from(tallyKey.publicKey),
         )
-        .accounts({
-          admin: admin.publicKey,
-          counter: counterPda,
-          pollAccount: pollPda,
-        })
+        .accounts({ admin: admin.publicKey, counter, pollAccount: invalidPoll, systemProgram: SystemProgram.programId })
         .signers([admin])
-        .rpc({ commitment: 'confirmed' });
+        .rpc()
+    await expect(createInvalid([])).rejects.toThrow('NoCandidates')
+    await expect(createInvalid(Array.from({ length: 11 }, (_, i) => `C${i + 1}`))).rejects.toThrow('TooManyCandidates')
+    expect(await context.banksClient.getAccount(invalidPoll)).toBeNull()
+    expect((await program.account.globalPollCounter.fetch(counter)).nextPollId.toNumber()).toBe(3)
+  })
 
-      const pollAccount = await program.account.pollAccount.fetch(pollPda);
-      
-      expect(pollAccount.pollId.toNumber()).toBe(1);
-      expect(pollAccount.admin.toString()).toBe(admin.publicKey.toString());
-      expect(pollAccount.pollName).toBe('Best Candidate Poll');
-      expect(pollAccount.candidates).toEqual(candidates);
-      expect(pollAccount.tallierPubkey).toEqual(Array.from(encryptionKeypair.publicKey));
-      
-      // Counter should have incremented
-      const counterAccount = await program.account.globalPollCounter.fetch(counterPda);
-      expect(counterAccount.nextPollId.toNumber()).toBe(2);
-    });
+  it('rejects undersized encrypted ballots without consuming the voter registration or nullifier', async () => {
+    const shortVoter = Keypair.generate(),
+      nullifier = nacl.randomBytes(32)
+    context.setAccount(shortVoter.publicKey, account())
+    await register(shortVoter)
+    setTime(10n)
+    await expect(castVote(shortVoter, nullifier, Buffer.alloc(72))).rejects.toThrow('InvalidEncryptedVote')
+    expect(await context.banksClient.getAccount(votePda(nullifier))).toBeNull()
+    expect((await program.account.voterRegistry.fetch(voterPda(shortVoter.publicKey))).hasVoted).toBe(false)
+  })
 
-    it('Fails to create poll with >10 candidates', async () => {
-      const now = Math.floor(Date.now() / 1000);
-      const candidates = Array.from({ length: 11 }, (_, i) => `Candidate ${i + 1}`);
-      
-      const [tempPollPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('poll'), new BN(2).toArrayLike(Buffer, 'le', 8)],
-        program.programId
-      );
+  it('rejects early publication and rolls back result creation', async () => {
+    setTime(10n)
+    await expect(publish(admin, counts())).rejects.toThrow('VotingNotEnded')
+    expect(await context.banksClient.getAccount(resultAccount)).toBeNull()
+  })
 
-      try {
-        await program.methods
-          .initializePoll(
-            new BN(now + 10),
-            new BN(now + 3600),
-            'Too Many Candidates',
-            'This should fail',
-            candidates,
-            Array.from(encryptionKeypair.publicKey)
-          )
-          .accounts({
-            admin: admin.publicKey,
-            counter: counterPda,
-            pollAccount: tempPollPda,
-          })
-          .signers([admin])
-          .rpc({ commitment: 'confirmed' });
-        
-        fail('Should have thrown error for too many candidates');
-      } catch (error: any) {
-        expect(error.error.errorMessage).toContain('Cannot have more than 10 candidates');
-      }
-    });
+  it('rejects admin result publication at the exact deadline', async () => {
+    setTime(20n)
+    const zeroCounts = candidates.map((candidateName) => ({ candidateName, voteCount: new anchor.BN(0) }))
+    await expect(publish(admin, zeroCounts)).rejects.toThrow('VotingNotEnded')
+    expect(await context.banksClient.getAccount(resultAccount)).toBeNull()
+  })
 
-    it('Fails to create poll with no candidates', async () => {
-      const now = Math.floor(Date.now() / 1000);
-      
-      const [tempPollPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('poll'), new BN(2).toArrayLike(Buffer, 'le', 8)],
-        program.programId
-      );
+  it('rejects an outsider after the deadline', async () => {
+    setTime(21n)
+    await expect(publish(outsider, counts())).rejects.toThrow('ConstraintHasOne')
+    expect(await context.banksClient.getAccount(resultAccount)).toBeNull()
+  })
 
-      try {
-        await program.methods
-          .initializePoll(
-            new BN(now + 10),
-            new BN(now + 3600),
-            'No Candidates',
-            'This should fail',
-            [],
-            Array.from(encryptionKeypair.publicKey)
-          )
-          .accounts({
-            admin: admin.publicKey,
-            counter: counterPda,
-            pollAccount: tempPollPda,
-          })
-          .signers([admin])
-          .rpc({ commitment: 'confirmed' });
-        
-        fail('Should have thrown error for no candidates');
-      } catch (error: any) {
-        expect(error.error.errorMessage).toContain('Poll must have at least one candidate');
-      }
-    });
-  });
+  it('rejects wrong names and overflowing tallies without occupying the result account', async () => {
+    setTime(21n)
+    await expect(publish(admin, [{ candidateName: 'X', voteCount: new anchor.BN(1) }, counts()[1]])).rejects.toThrow(
+      'InvalidTallyCount',
+    )
+    await expect(
+      publish(admin, [
+        { candidateName: 'A', voteCount: new anchor.BN('18446744073709551615') },
+        { candidateName: 'B', voteCount: new anchor.BN(1) },
+      ]),
+    ).rejects.toThrow('InvalidTallyCount')
+    expect(await context.banksClient.getAccount(resultAccount)).toBeNull()
+  })
 
-  describe('Phase 2: Voter Registration', () => {
-    it('Admin registers voter1', async () => {
-      const [voter1RegistryPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('voter'),
-          new BN(poll_id).toArrayLike(Buffer, 'le', 8),
-          voter1.publicKey.toBuffer(),
-        ],
-        program.programId
-      );
-
-      await program.methods
-        .registerVoter(new BN(poll_id))
-        .accounts({
-          admin: admin.publicKey,
-          pollAccount: pollPda,
-          voter: voter1.publicKey,
-          voterRegistry: voter1RegistryPda,
-        })
-        .signers([admin])
-        .rpc({ commitment: 'confirmed' });
-
-      const registryAccount = await program.account.voterRegistry.fetch(voter1RegistryPda);
-      expect(registryAccount.registered).toBe(true);
-      expect(registryAccount.hasVoted).toBe(false);
-    });
-
-    it('Admin registers voter2 and voter3', async () => {
-      for (const voter of [voter2, voter3]) {
-        const [voterRegistryPda] = PublicKey.findProgramAddressSync(
-          [
-            Buffer.from('voter'),
-            new BN(poll_id).toArrayLike(Buffer, 'le', 8),
-            voter.publicKey.toBuffer(),
-          ],
-          program.programId
-        );
-
-        await program.methods
-          .registerVoter(new BN(poll_id))
-          .accounts({
-            admin: admin.publicKey,
-            pollAccount: pollPda,
-            voter: voter.publicKey,
-            voterRegistry: voterRegistryPda,
-          })
-          .signers([admin])
-          .rpc({ commitment: 'confirmed' });
-      }
-    });
-
-    it('Fails when non-admin tries to register a voter', async () => {
-      const randomVoter = Keypair.generate();
-      await banksClient.requestAirdrop(randomVoter.publicKey, 1_000_000_000);
-      
-      const [randomRegistryPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('voter'),
-          new BN(poll_id).toArrayLike(Buffer, 'le', 8),
-          randomVoter.publicKey.toBuffer(),
-        ],
-        program.programId
-      );
-
-      try {
-        await program.methods
-          .registerVoter(new BN(poll_id))
-          .accounts({
-            admin: voter1.publicKey, // Not the admin!
-            pollAccount: pollPda,
-            voter: randomVoter.publicKey,
-            voterRegistry: randomRegistryPda,
-          })
-          .signers([voter1])
-          .rpc({ commitment: 'confirmed' });
-        
-        fail('Should have thrown error for non-admin registration');
-      } catch (error: any) {
-        // has_one constraint will fail
-        expect(error).toBeDefined();
-      }
-    });
-  });
-
-  describe('Phase 3: Voting', () => {
-    // Helper function to encrypt a vote
-    function encryptVote(candidate: string, adminPublicKey: Uint8Array): Buffer {
-      const message = Buffer.from(candidate);
-      // Using sealed box (one-way encryption with only recipient's public key)
-      const nonce = nacl.randomBytes(24);
-      const ephemeralKeypair = nacl.box.keyPair();
-      const encrypted = nacl.box(message, nonce, adminPublicKey, ephemeralKeypair.secretKey);
-      
-      // Concatenate ephemeral public key + nonce + ciphertext
-      const combined = Buffer.concat([
-        Buffer.from(ephemeralKeypair.publicKey),
-        Buffer.from(nonce),
-        Buffer.from(encrypted)
-      ]);
-      
-      return combined;
-    }
-
-    it('Fails when unregistered voter tries to vote', async () => {
-      const unregisteredVoter = Keypair.generate();
-      await banksClient.requestAirdrop(unregisteredVoter.publicKey, 1_000_000_000);
-      
-      const [unregisteredRegistryPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('voter'),
-          new BN(poll_id).toArrayLike(Buffer, 'le', 8),
-          unregisteredVoter.publicKey.toBuffer(),
-        ],
-        program.programId
-      );
-
-      const encryptedVote = encryptVote('Alice', encryptionKeypair.publicKey);
-
-      try {
-        await program.methods
-          .vote(new BN(poll_id), Array.from(encryptedVote))
-          .accounts({
-            voter: unregisteredVoter.publicKey,
-            pollAccount: pollPda,
-            voterRegistry: unregisteredRegistryPda,
-          })
-          .signers([unregisteredVoter])
-          .rpc({ commitment: 'confirmed' });
-        
-        fail('Should have thrown error for unregistered voter');
-      } catch (error: any) {
-        // Account doesn't exist or voter not registered error
-        expect(error).toBeDefined();
-      }
-    });
-
-    it('Fails when voting before start time', async () => {
-      // Create a new poll that hasn't started yet
-      const now = Math.floor(Date.now() / 1000);
-      const futureStartTime = new BN(now + 100); // Starts in 100 seconds
-      const futureEndTime = new BN(now + 3700);
-      
-      const futurePollId = 2;
-      const [futurePollPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('poll'), new BN(futurePollId).toArrayLike(Buffer, 'le', 8)],
-        program.programId
-      );
-
-      await program.methods
-        .initializePoll(
-          futureStartTime,
-          futureEndTime,
-          'Future Poll',
-          'This poll starts later',
-          ['Option A', 'Option B'],
-          Array.from(encryptionKeypair.publicKey)
-        )
-        .accounts({
-          admin: admin.publicKey,
-          counter: counterPda,
-          pollAccount: futurePollPda,
-        })
-        .signers([admin])
-        .rpc({ commitment: 'confirmed' });
-
-      // Register voter1 for this future poll
-      const [futureVoter1RegistryPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('voter'),
-          new BN(futurePollId).toArrayLike(Buffer, 'le', 8),
-          voter1.publicKey.toBuffer(),
-        ],
-        program.programId
-      );
-
-      await program.methods
-        .registerVoter(new BN(futurePollId))
-        .accounts({
-          admin: admin.publicKey,
-          pollAccount: futurePollPda,
-          voter: voter1.publicKey,
-          voterRegistry: futureVoter1RegistryPda,
-        })
-        .signers([admin])
-        .rpc({ commitment: 'confirmed' });
-
-      const encryptedVote = encryptVote('Option A', encryptionKeypair.publicKey);
-
-      try {
-        await program.methods
-          .vote(new BN(futurePollId), Array.from(encryptedVote))
-          .accounts({
-            voter: voter1.publicKey,
-            pollAccount: futurePollPda,
-            voterRegistry: futureVoter1RegistryPda,
-          })
-          .signers([voter1])
-          .rpc({ commitment: 'confirmed' });
-        
-        fail('Should have thrown error for voting before start time');
-      } catch (error: any) {
-        expect(error.error.errorMessage).toContain('Voting has not started yet');
-      }
-    });
-
-    it('Successfully votes for poll 1', async () => {
-      const [voter1RegistryPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('voter'),
-          new BN(poll_id).toArrayLike(Buffer, 'le', 8),
-          voter1.publicKey.toBuffer(),
-        ],
-        program.programId
-      );
-
-      const encryptedVote = encryptVote('Alice', encryptionKeypair.publicKey);
-
-      await program.methods
-        .vote(new BN(poll_id), Array.from(encryptedVote))
-        .accounts({
-          voter: voter1.publicKey,
-          pollAccount: pollPda,
-          voterRegistry: voter1RegistryPda,
-        })
-        .signers([voter1])
-        .rpc({ commitment: 'confirmed' });
-
-      const registryAccount = await program.account.voterRegistry.fetch(voter1RegistryPda);
-      expect(registryAccount.hasVoted).toBe(true);
-      expect(registryAccount.encryptedVote.length).toBeGreaterThan(0);
-    });
-
-    it('Voter2 and Voter3 successfully vote', async () => {
-      for (const [idx, voter] of [voter2, voter3].entries()) {
-        const [voterRegistryPda] = PublicKey.findProgramAddressSync(
-          [
-            Buffer.from('voter'),
-            new BN(poll_id).toArrayLike(Buffer, 'le', 8),
-            voter.publicKey.toBuffer(),
-          ],
-          program.programId
-        );
-
-        const candidate = idx === 0 ? 'Bob' : 'Alice'; // voter2->Bob, voter3->Alice
-        const encryptedVote = encryptVote(candidate, encryptionKeypair.publicKey);
-
-        await program.methods
-          .vote(new BN(poll_id), Array.from(encryptedVote))
-          .accounts({
-            voter: voter.publicKey,
-            pollAccount: pollPda,
-            voterRegistry: voterRegistryPda,
-          })
-          .signers([voter])
-          .rpc({ commitment: 'confirmed' });
-      }
-    });
-
-    it('Fails when voter tries to vote twice', async () => {
-      const [voter1RegistryPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('voter'),
-          new BN(poll_id).toArrayLike(Buffer, 'le', 8),
-          voter1.publicKey.toBuffer(),
-        ],
-        program.programId
-      );
-
-      const encryptedVote = encryptVote('Bob', encryptionKeypair.publicKey);
-
-      try {
-        await program.methods
-          .vote(new BN(poll_id), Array.from(encryptedVote))
-          .accounts({
-            voter: voter1.publicKey,
-            pollAccount: pollPda,
-            voterRegistry: voter1RegistryPda,
-          })
-          .signers([voter1])
-          .rpc({ commitment: 'confirmed' });
-        
-        fail('Should have thrown error for double voting');
-      } catch (error: any) {
-        expect(error.error.errorMessage).toContain('Voter has already voted');
-      }
-    });
-  });
-
-  describe('Phase 4: Event Verification', () => {
-    it('Verifies events were emitted', async () => {
-      // Note: In bankrun, event listening is limited
-      // Events are emitted but we verify via account state changes
-      const registryAccounts = await Promise.all([
-        program.account.voterRegistry.fetch(
-          PublicKey.findProgramAddressSync(
-            [Buffer.from('voter'), new BN(poll_id).toArrayLike(Buffer, 'le', 8), voter1.publicKey.toBuffer()],
-            program.programId
-          )[0]
-        ),
-        program.account.voterRegistry.fetch(
-          PublicKey.findProgramAddressSync(
-            [Buffer.from('voter'), new BN(poll_id).toArrayLike(Buffer, 'le', 8), voter2.publicKey.toBuffer()],
-            program.programId
-          )[0]
-        ),
-        program.account.voterRegistry.fetch(
-          PublicKey.findProgramAddressSync(
-            [Buffer.from('voter'), new BN(poll_id).toArrayLike(Buffer, 'le', 8), voter3.publicKey.toBuffer()],
-            program.programId
-          )[0]
-        ),
-      ]);
-
-      // Verify all voters have voted
-      registryAccounts.forEach(account => {
-        expect(account.hasVoted).toBe(true);
-        expect(account.encryptedVote.length).toBeGreaterThan(0);
-      });
-    });
-  });
-});
+  it('publishes the admin tally and retrieves matching names, counts and total', async () => {
+    setTime(21n)
+    await publish(admin, counts())
+    const saved = await program.account.resultsAccount.fetch(resultAccount)
+    expect(saved.totalVotes.toNumber()).toBe(1)
+    expect(saved.results.map((r: any) => [r.candidateName, r.voteCount.toNumber()])).toEqual([
+      ['A', 1],
+      ['B', 0],
+    ])
+  })
+})

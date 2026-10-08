@@ -18,7 +18,7 @@ export default function CreatePollPage() {
   const router = useRouter()
   const { publicKey } = useWallet()
   const { connection } = useConnection()
-  const { initializeCounter, initializePoll, program, getCounterPDA } = useVotingProgram()
+  const { initializeCounter, initializePoll } = useVotingProgram()
 
   const [pollName, setPollName] = useState('')
   const [description, setDescription] = useState('')
@@ -121,12 +121,13 @@ export default function CreatePollPage() {
         // Wait for confirmation
         await connection.confirmTransaction(txSig, 'confirmed')
         console.log('Counter initialized successfully')
-      } catch (e: any) {
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
         // Counter might already exist, which is fine
-        if (e.message?.includes('already in use')) {
+        if (message.includes('already in use')) {
           console.log('Counter already initialized (this is ok)')
         } else {
-          console.log('Counter initialization error (might be ok):', e.message)
+          console.log('Counter initialization error (might be ok):', message)
         }
       }
 
@@ -145,9 +146,10 @@ export default function CreatePollPage() {
       // Use the poll ID returned from the mutation
       setCreatedPollId(result.pollId)
 
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
       console.error('Error creating poll:', err)
-      setError(err.message || 'Failed to create poll')
+      setError(message || 'Failed to create poll')
     } finally {
       setIsCreating(false)
     }

@@ -11,12 +11,14 @@
     "dev": "next dev --turbopack",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "next lint",
-    "start": "next start"
+    "lint": "eslint src",
+    "start": "next start",
+    "test:contracts": "jest --runInBand",
+    "test:rust": "cargo test --manifest-path anchor/programs/voting/Cargo.toml --lib"
   },
   "displayName": "Veritas",
   "usecase": "Blockchain Voting",
-  "description": "Solana voting prototype with client-encrypted ballots and unverified result submission",
+  "description": "Solana voting prototype with client-encrypted ballots and admin-submitted, unverified tallies",
   "keywords": [
     "anchor-counter",
     "nextjs",

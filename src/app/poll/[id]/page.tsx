@@ -54,7 +54,7 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
       crypto.getRandomValues(nullifier)
       
       // Encrypt the vote
-      const tallierPubkey = new Uint8Array(poll.tallierPubkey as any)
+      const tallierPubkey = new Uint8Array(poll.tallierPubkey)
       const encryptedVote = encryptVote(selectedCandidate, tallierPubkey)
       
       await vote.mutateAsync({
@@ -64,9 +64,10 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
       })
       
       setSuccess(true)
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
       console.error('Error voting:', err)
-      setError(err.message || 'Failed to submit vote')
+      setError(message || 'Failed to submit vote')
     } finally {
       setIsVoting(false)
     }
@@ -149,9 +150,9 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
             </CardHeader>
             <CardContent className="space-y-4">
               {results.results
-                .sort((a: any, b: any) => Number(b.voteCount) - Number(a.voteCount))
-                .map((result: any, index: number) => {
-                  const percentage = results.totalVotes > 0 
+                .sort((a, b) => Number(b.voteCount) - Number(a.voteCount))
+                .map((result, index: number) => {
+                  const percentage = !results.totalVotes.isZero()
                     ? ((Number(result.voteCount) / Number(results.totalVotes)) * 100).toFixed(1)
                     : '0'
                   
@@ -208,7 +209,7 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
           <CardContent className="space-y-4">
             <Alert>
               <AlertDescription>
-                Your choice has been encrypted with the poll's tally public key and stored on Solana. The public transaction still exposes your wallet address and ballot-account relationship.
+                Your choice has been encrypted with the poll’s tally public key and stored on Solana. The public transaction still exposes your wallet address and ballot-account relationship.
               </AlertDescription>
             </Alert>
             <div className="space-y-2">
@@ -262,7 +263,7 @@ export default function PollPage({ params }: { params: Promise<{ id: string }> }
           <CardContent className="space-y-4">
             <Alert>
               <AlertDescription>
-                No result record is available yet. The app can decrypt ballots off-chain and submit counts, but the program allows any signer to submit an unverified result after voting ends.
+                No result record is available yet. The app can decrypt ballots off-chain and submit counts, but the program only allows the poll admin to submit a tally after voting ends.
               </AlertDescription>
             </Alert>
             {hasVoted && (

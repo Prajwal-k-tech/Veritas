@@ -22,8 +22,8 @@ pub mod voting { //smart contract name
     ) -> Result<()> {
         let current_time = Clock::get()?.unix_timestamp;
         
-        require!(candidates.len() <= 10, ErrorCode::TooManyCandidates); //max of 10 candidates
-        require!(candidates.len() > 0, ErrorCode::NoCandidates); //make sure more than 1 duh 
+        require!(candidates.len() <= 10, ErrorCode::TooManyCandidates); // At most 10 candidates.
+        require!(candidates.len() > 0, ErrorCode::NoCandidates); // At least one candidate.
         // Poll starts NOW (blockchain time), end time must be in future
         require!(end_time as i64 > current_time, ErrorCode::InvalidTimeRange);
 
@@ -116,7 +116,7 @@ pub mod voting { //smart contract name
         Ok(())
     }
 
-    // Publish final results after voting ends (callable by anyone)
+    // Only the poll admin may publish a structurally valid tally after voting ends.
     pub fn publish_results(
         ctx: Context<PublishResults>,
         _poll_id: u64,
@@ -125,20 +125,16 @@ pub mod voting { //smart contract name
         let current_time = Clock::get()?.unix_timestamp;
         let poll = &ctx.accounts.poll_account;
 
+        require_keys_eq!(ctx.accounts.publisher.key(), poll.admin, anchor_lang::error::ErrorCode::ConstraintHasOne);
+
         // Ensure voting has ended
         require!(
             current_time > poll.poll_voting_end as i64,
             ErrorCode::VotingNotEnded
         );
 
-        // Validate results match candidates
-        require!(
-            results.len() == poll.candidates.len(),
-            ErrorCode::InvalidTallyCount
-        );
-
         let results_account = &mut ctx.accounts.results_account;
-        let total: u64 = results.iter().map(|r| r.vote_count).sum();
+        let total = validate_tally(&results, &poll.candidates)?;
 
         results_account.poll_id = _poll_id;
         results_account.results = results.clone();
@@ -384,6 +380,7 @@ pub enum ErrorCode {
     TooManyCandidates,
     #[msg("Poll must have at least one candidate")]
     NoCandidates,
+    // Reserved in place to preserve the numeric codes of later errors for existing clients.
     #[msg("Start time cannot be in the past")]
     InvalidStartTime,
     #[msg("End time must be after start time")]
@@ -394,4 +391,38 @@ pub enum ErrorCode {
     InvalidTallyCount,
     #[msg("Encrypted vote data is invalid or too small")]
     InvalidEncryptedVote,
+}
+
+// A trusted admin still supplies counts; this validates shape, names and arithmetic,
+// not that the encrypted ballots cryptographically support the tally.
+fn validate_tally(results: &[CandidateResult], candidates: &[String]) -> Result<u64> {
+    require!(results.len() == candidates.len(), ErrorCode::InvalidTallyCount);
+    let mut total = 0u64;
+    for (result, candidate) in results.iter().zip(candidates) {
+        require!(result.candidate_name == *candidate, ErrorCode::InvalidTallyCount);
+        total = total.checked_add(result.vote_count).ok_or(ErrorCode::InvalidTallyCount)?;
+    }
+    Ok(total)
+}
+
+#[cfg(test)]
+mod tally_tests {
+    use super::*;
+    fn result(name: &str, count: u64) -> CandidateResult {
+        CandidateResult { candidate_name: name.into(), vote_count: count }
+    }
+    #[test]
+    fn valid_tally_and_empty_counts() {
+        let candidates = vec!["A".into(), "B".into()];
+        assert_eq!(validate_tally(&[result("A", 1), result("B", 2)], &candidates).unwrap(), 3);
+        assert_eq!(validate_tally(&[result("A", 0), result("B", 0)], &candidates).unwrap(), 0);
+    }
+    #[test]
+    fn rejects_missing_unknown_reordered_and_overflowing_results() {
+        let candidates = vec!["A".into(), "B".into()];
+        for results in [vec![result("A", 1)], vec![result("X", 1), result("B", 0)],
+            vec![result("B", 1), result("A", 0)], vec![result("A", u64::MAX), result("B", 1)]] {
+            assert!(validate_tally(&results, &candidates).is_err());
+        }
+    }
 }
