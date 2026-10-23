@@ -85,3 +85,7 @@ Treat the system as a prototype for studying blockchain application design and p
 - [Anchor documentation](https://www.anchor-lang.com/docs)
 - [TweetNaCl.js](https://github.com/dchest/tweetnacl-js)
 - [Next.js documentation](https://nextjs.org/docs)
+
+## Recovery
+
+See [RECOVERY.md](RECOVERY.md) for rebuilding an offloaded checkout and restoring its dependencies/data.
